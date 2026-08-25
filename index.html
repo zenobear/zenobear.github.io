@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Till — Sales &amp; Inventory</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ONBOARDING: connect screen -->
+<div class="onboard-wrap" id="connectScreen">
+  <div class="card onboard-card">
+    <h2>Connect your Supabase database</h2>
+    <p>This POS uses Supabase (a hosted Postgres database) as its live backend, so every device — phone, tablet, or PC — reads and writes the same real-time inventory and sales, with proper safeguards against overselling. Set it up once:</p>
+    <ol class="steps">
+      <li>Create a free project at <b>supabase.com</b>.</li>
+      <li>Open <b>SQL Editor → New query</b>, paste the schema below, click <b>Run</b>.</li>
+      <li>Go to <b>Project Settings → API</b>.</li>
+      <li>Copy the <b>Project URL</b> and the <b>anon public</b> key.</li>
+      <li>Paste both below and connect.</li>
+    </ol>
+    <button class="btn btn-sm" id="onboardCopyScriptBtn" style="margin-bottom:8px;">Copy schema SQL</button>
+    <div class="code-block" id="onboardScriptBlock"></div>
+    <div class="field" style="margin-top:16px;"><label>Project URL</label><input id="onboardUrl" placeholder="https://xxxxx.supabase.co"></div>
+    <div class="field"><label>anon public key</label><input id="onboardKey" placeholder="eyJhbGciOi..."></div>
+    <button class="btn btn-primary btn-block" id="onboardConnectBtn">Connect</button>
+    <div id="onboardMsg" style="margin-top:10px;font-size:12.5px;"></div>
+  </div>
+</div>
+
+<!-- ROLE GATE: shown every time the app opens -->
+<div class="onboard-wrap" id="roleScreen" style="display:none;">
+  <div style="max-width:640px;width:100%;">
+    <div style="text-align:center;margin-bottom:24px;">
+      <div class="brand-mark" style="width:44px;height:44px;font-size:20px;margin:0 auto 14px auto;" id="roleShopMark">T</div>
+      <h2 style="margin:0 0 6px 0;" id="roleShopName">Till</h2>
+      <p style="color:var(--ink-soft);font-size:13.5px;margin:0;">Who's using this device?</p>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <button class="card" id="chooseStaffBtn" style="padding:28px 20px;text-align:left;cursor:pointer;">
+        <div style="font-size:17px;font-weight:700;margin-bottom:6px;">Staff</div>
+        <div style="font-size:12.5px;color:var(--ink-soft);line-height:1.5;">Ring up sales only. Pick your name, then go straight to Sell.</div>
+      </button>
+      <button class="card" id="chooseOwnerBtn" style="padding:28px 20px;text-align:left;cursor:pointer;">
+        <div style="font-size:17px;font-weight:700;margin-bottom:6px;">Owner / Admin</div>
+        <div style="font-size:12.5px;color:var(--ink-soft);line-height:1.5;">Full access — products, inventory, reports, and settings.</div>
+      </button>
+    </div>
+    <div style="text-align:center;margin-top:18px;"><button class="btn btn-sm" id="roleSettingsBtn">Database connection settings</button></div>
+  </div>
+</div>
+
+<!-- STAFF SIGN-IN: pick or add a name, honor system (no password) -->
+<div class="onboard-wrap" id="staffSignInScreen" style="display:none;">
+  <div class="card onboard-card" style="max-width:440px;">
+    <h2 style="margin-bottom:4px;">What's your name?</h2>
+    <p style="margin-top:0;">This just labels your sales for reporting — no password, and anyone can pick a different name next time.</p>
+    <div id="staffQuickContinue" style="display:none;margin-bottom:14px;">
+      <button class="btn btn-primary btn-block" id="staffContinueLastBtn"></button>
+    </div>
+    <div class="section-title">Select your name</div>
+    <div id="staffRosterGrid" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;"></div>
+    <div class="field"><label>Or add a new name</label><input id="staffNewName" placeholder="Type your name"></div>
+    <button class="btn btn-primary btn-block" id="staffAddContinueBtn">Continue</button>
+    <div style="text-align:center;margin-top:14px;"><button class="btn btn-sm" id="staffBackBtn">← Back</button></div>
+  </div>
+</div>
+
+<!-- MAIN APP (hidden until connected) -->
+<div id="appShell" style="display:none;width:100%;display:flex;">
+<nav id="sidebar">
+  <div class="brand"><div class="brand-mark">T</div><div class="brand-name" id="shopNameLabel">Till</div></div>
+  <button class="nav-item active" data-view="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</button>
+  <button class="nav-item" data-view="sell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h2l2.6 12.4a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 2-1.6L21 7H6"/></svg>Sell</button>
+  <button class="nav-item" data-view="products"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Products</button>
+  <button class="nav-item" data-view="inventory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>Inventory</button>
+  <button class="nav-item" data-view="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h4"/></svg>Sales History</button>
+  <button class="nav-item" data-view="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>Reports</button>
+  <button class="nav-item" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
+  <div class="sidebar-foot">
+    <div class="conn-bar"><span class="conn-dot" id="sideConnDot"></span><span id="sideConnText">Connecting…</span></div>
+    <div style="margin-top:6px;" id="sidePosLabel"></div>
+    <div style="margin-top:6px;" id="sideRoleLabel"></div>
+    <button class="btn btn-sm btn-block" id="switchUserBtn" style="margin-top:10px;">Switch user</button>
+  </div>
+</nav>
+
+<main id="main">
+  <div id="topbar">
+    <h1 id="viewTitle">Dashboard</h1>
+    <div class="topbar-right">
+      <div class="conn-bar"><span class="conn-dot" id="topConnDot"></span><span id="topConnText">Connecting…</span></div>
+      <button class="refresh-btn" id="refreshBtn" title="Refresh"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></button>
+      <div class="topbar-stats">
+        <div class="tstat"><div class="v" id="topToday">₱0.00</div><div class="l">Today</div></div>
+        <div class="tstat"><div class="v" id="topTxns">0</div><div class="l">Transactions</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="content">
+
+    <!-- DASHBOARD -->
+    <section class="view active" id="view-dashboard">
+      <div class="stat-cards">
+        <div class="card stat-card"><div class="v" id="dToday">₱0.00</div><div class="l">Today's sales</div></div>
+        <div class="card stat-card"><div class="v" id="dTxns">0</div><div class="l">Transactions</div></div>
+        <div class="card stat-card"><div class="v" id="dItems">0</div><div class="l">Items sold</div></div>
+        <div class="card stat-card"><div class="v" id="dInv">0</div><div class="l">Units in stock</div></div>
+        <div class="card stat-card"><div class="v" id="dCash">₱0.00</div><div class="l">Cash sales</div></div>
+        <div class="card stat-card"><div class="v" id="dCard">₱0.00</div><div class="l">Card sales</div></div>
+        <div class="card stat-card warn"><div class="v" id="dLow">0</div><div class="l">Low stock</div></div>
+        <div class="card stat-card danger"><div class="v" id="dOut">0</div><div class="l">Out of stock</div></div>
+      </div>
+      <div class="dash-grid">
+        <div class="card" style="padding:20px;">
+          <div class="section-title">Best sellers (all time)</div>
+          <div id="dashBest"></div>
+        </div>
+        <div class="card" style="padding:20px;">
+          <div class="section-title">Low &amp; out of stock</div>
+          <div id="dashLow"></div>
+        </div>
+      </div>
+      <div class="dash-grid" style="margin-top:18px;">
+        <div class="card" style="padding:20px;">
+          <div class="section-title">Recent transactions</div>
+          <div id="dashRecent"></div>
+        </div>
+        <div class="card" style="padding:20px;">
+          <div class="section-title">Sales by POS (today)</div>
+          <div id="dashPos"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SELL / POS -->
+    <section class="view" id="view-sell">
+      <div class="sell-grid">
+        <div>
+          <div class="card scan-panel">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px;">
+              <div class="section-title" style="margin:0;">Scan product</div>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <span class="txn-badge mono" id="posBadge">POS —</span>
+                <button class="txn-badge mono" id="staffBadge" style="cursor:pointer;border:1px solid var(--line);">Staff —</button>
+                <span class="bazaar-pill" id="bazaarPill" style="display:none;"></span>
+              </div>
+            </div>
+            <div class="scan-row">
+              <input id="scanInput" class="mono" placeholder="Scan barcode / QR, or type Product ID + Enter" autocomplete="off">
+              <button class="btn btn-brass cam-btn" id="openCamBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Camera</button>
+            </div>
+            <div class="scan-hint">Wired/wireless scanners type into this box automatically. On your phone, tap Camera.</div>
+            <button class="btn btn-sm" id="browseBtn" style="margin-top:10px;">Browse products instead</button>
+            <div id="scanMsg"></div>
+          </div>
+
+          <div class="card cart-panel">
+            <div class="section-title">Cart</div>
+            <div id="cartList"><div class="cart-empty">Scan a product to start this sale.</div></div>
+            <div class="cart-totals" id="cartTotals" style="display:none;">
+              <div class="ct-row"><span>Subtotal</span><span class="mono" id="ctSub">₱0.00</span></div>
+              <div class="ct-row"><span>Discount</span><span class="mono" id="ctDisc">−₱0.00</span></div>
+              <div class="ct-row grand"><span>Total</span><span class="mono" id="ctTotal">₱0.00</span></div>
+
+              <div class="pay-methods">
+                <button class="btn-toggle" id="btnSelCash">Cash</button>
+                <button class="btn-toggle" id="btnSelCard">Card</button>
+              </div>
+              <div class="cash-panel" id="cashPanel" style="display:none;">
+                <div class="field"><label>Cash received</label><input id="cashReceived" type="number" min="0" step="0.01" placeholder="0.00"></div>
+                <div class="change-line" id="changeLine"><span>Change</span><span class="mono">₱0.00</span></div>
+                <button class="btn btn-primary btn-block" id="confirmCashBtn" style="margin-top:12px;">Complete cash sale</button>
+              </div>
+              <div id="cardPanel" style="display:none;margin-top:12px;">
+                <button class="btn btn-primary btn-block" id="confirmCardBtn">Complete card sale</button>
+              </div>
+              <button class="btn btn-block" id="clearCartBtn" style="margin-top:10px;">Cancel transaction</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:20px;">
+          <div class="section-title">Last receipt</div>
+          <div class="receipt-wrap" id="receiptWrap"><div class="receipt-empty">Completed sales print a slip here.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PRODUCTS -->
+    <section class="view" id="view-products">
+      <div class="toolbar">
+        <input id="prodSearch" placeholder="Search name or Product ID…" style="min-width:200px;">
+        <select id="prodCategoryFilter"><option value="">All categories</option></select>
+        <select id="prodStatusFilter"><option value="Active">Active</option><option value="Inactive">Inactive</option><option value="">All</option></select>
+        <div class="spacer"></div>
+        <button class="btn btn-primary" id="addProductBtn">+ Add product</button>
+      </div>
+      <div class="card" style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Item</th><th>Product ID</th><th>Category / Series</th><th>Cost</th><th>Price</th><th>Discount</th><th>Stock</th><th>Status</th><th></th></tr></thead>
+          <tbody id="prodTbody"></tbody>
+        </table>
+        <div class="empty-state" id="prodEmpty" style="display:none;">No products yet. Add your first item to generate its barcode/QR label.</div>
+      </div>
+    </section>
+
+    <!-- INVENTORY -->
+    <section class="view" id="view-inventory">
+      <div class="stat-cards">
+        <div class="card stat-card"><div class="v" id="invTotalUnits">0</div><div class="l">Units in stock</div></div>
+        <div class="card stat-card warn"><div class="v" id="invLowCount">0</div><div class="l">Low stock</div></div>
+        <div class="card stat-card danger"><div class="v" id="invOutCount">0</div><div class="l">Out of stock</div></div>
+        <div class="card stat-card"><div class="v" id="invMoveCount">0</div><div class="l">Movements logged</div></div>
+      </div>
+      <div class="toolbar">
+        <button class="btn btn-primary" id="stockInBtn">Stock in</button>
+        <button class="btn" id="adjustBtn">Adjust stock</button>
+        <div class="spacer"></div>
+      </div>
+      <div class="section-title">Movement history</div>
+      <div class="card" style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Date</th><th>Product</th><th>Type</th><th>Qty</th><th>Reference</th><th>POS</th><th>Reason</th></tr></thead>
+          <tbody id="moveTbody"></tbody>
+        </table>
+        <div class="empty-state" id="moveEmpty" style="display:none;">No inventory movements yet.</div>
+      </div>
+    </section>
+
+    <!-- SALES HISTORY -->
+    <section class="view" id="view-history">
+      <div class="toolbar">
+        <input type="date" id="hFrom"><input type="date" id="hTo">
+        <select id="hPayment"><option value="all">All payments</option><option value="Cash">Cash only</option><option value="Card">Card only</option></select>
+        <select id="hPos"><option value="all">All POS</option></select>
+        <input id="hSearch" placeholder="Search transaction # or product…">
+        <div class="spacer"></div>
+        <button class="btn" id="exportTxnCsvBtn">Export CSV</button>
+      </div>
+      <div class="card" style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Transaction #</th><th>Date &amp; time</th><th>POS</th><th>Items</th><th>Payment</th><th>Total</th></tr></thead>
+          <tbody id="histTbody"></tbody>
+        </table>
+        <div class="empty-state" id="histEmpty" style="display:none;">No sales recorded yet.</div>
+      </div>
+    </section>
+
+    <!-- REPORTS -->
+    <section class="view" id="view-reports">
+      <div class="tabs">
+        <button class="tab-btn active" data-period="today">Today</button>
+        <button class="tab-btn" data-period="week">This week</button>
+        <button class="tab-btn" data-period="month">This month</button>
+        <button class="tab-btn" data-period="custom">Custom range</button>
+      </div>
+      <div class="toolbar" id="customRangeRow" style="display:none;">
+        <input type="date" id="repFrom"><input type="date" id="repTo">
+        <button class="btn btn-sm" id="repApply">Apply</button>
+      </div>
+      <div class="stat-cards">
+        <div class="card stat-card"><div class="v" id="repSales">₱0.00</div><div class="l">Total sales</div></div>
+        <div class="card stat-card"><div class="v" id="repTxns">0</div><div class="l">Transactions</div></div>
+        <div class="card stat-card"><div class="v" id="repItems">0</div><div class="l">Items sold</div></div>
+        <div class="card stat-card"><div class="v" id="repProfit">₱0.00</div><div class="l">Est. profit</div></div>
+        <div class="card stat-card"><div class="v" id="repCash">₱0.00</div><div class="l">Cash sales</div></div>
+        <div class="card stat-card"><div class="v" id="repCard">₱0.00</div><div class="l">Card sales</div></div>
+        <div class="card stat-card"><div class="v" id="repDiscount">₱0.00</div><div class="l">Discounts given</div></div>
+        <div class="card stat-card"><div class="v" id="repNet">₱0.00</div><div class="l">Net sales</div></div>
+      </div>
+      <div class="dash-grid">
+        <div class="card" style="padding:20px;">
+          <div class="section-title">Best sellers (this period)</div>
+          <div id="repBest"></div>
+        </div>
+        <div class="card" style="padding:20px;">
+          <div class="section-title">Sales by category</div>
+          <div id="repByCategory"></div>
+        </div>
+      </div>
+      <div class="dash-grid" style="margin-top:18px;">
+        <div class="card" style="padding:20px;">
+          <div class="section-title">Sales by series / design</div>
+          <div id="repBySeries"></div>
+        </div>
+        <div class="card" style="padding:20px;">
+          <div class="section-title">Sales by POS</div>
+          <div id="repByPos"></div>
+        </div>
+      </div>
+      <div class="dash-grid" style="margin-top:18px;">
+        <div class="card" style="padding:20px;">
+          <div class="section-title">Sales by staff</div>
+          <div id="repByStaff"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="view-settings">
+      <div class="settings-grid">
+        <div>
+          <div class="card settings-card">
+            <div class="section-title">Shop</div>
+            <div class="field"><label>Shop name</label><input id="setShopName" placeholder="My Shop"></div>
+            <div class="field"><label>Currency symbol</label><input id="setCurrency" placeholder="₱" maxlength="3"></div>
+            <button class="btn btn-primary" id="saveShopBtn">Save</button>
+          </div>
+
+          <div class="card settings-card">
+            <div class="section-title">This POS device</div>
+            <div id="thisPosInfo" class="info-box"></div>
+            <div class="field"><label>Switch to an existing POS</label><select id="switchPosSelect"></select></div>
+            <button class="btn btn-block" id="switchPosBtn" style="margin-bottom:10px;">Switch</button>
+            <div class="hint">Or register a new device below.</div>
+            <div class="inline-form">
+              <input id="newPosName" placeholder="Device name e.g. Front Counter">
+              <select id="newPosType"><option>Laptop</option><option>Phone</option><option>Tablet</option><option>PC</option></select>
+              <button class="btn btn-sm" id="addPosBtn">Register</button>
+            </div>
+          </div>
+
+          <div class="card settings-card">
+            <div class="section-title">Categories</div>
+            <div id="categoryList"></div>
+            <div class="inline-form">
+              <input id="newCatName" placeholder="Category name">
+              <input id="newCatDiscount" type="number" min="0" max="100" placeholder="Discount %" style="max-width:110px;">
+              <button class="btn btn-sm" id="addCategoryBtn">Add</button>
+            </div>
+          </div>
+
+          <div class="card settings-card">
+            <div class="section-title">Series / Designs</div>
+            <div id="seriesList"></div>
+            <div class="inline-form">
+              <select id="newSeriesCategory"></select>
+              <input id="newSeriesName" placeholder="Series / design name">
+              <input id="newSeriesDiscount" type="number" min="0" max="100" placeholder="Discount %" style="max-width:110px;">
+              <button class="btn btn-sm" id="addSeriesBtn">Add</button>
+            </div>
+            <div class="hint">Discount priority: product discount → series discount → active bazaar override → category discount. Only one applies — they never stack.</div>
+          </div>
+
+          <div class="card settings-card">
+            <div class="section-title">Bazaar / events</div>
+            <div id="bazaarList"></div>
+            <div class="field" style="margin-top:10px;"><label>Event name</label><input id="newBazName" placeholder="e.g. August Bazaar 2026"></div>
+            <div class="field-row">
+              <div class="field"><label>Location</label><input id="newBazLoc" placeholder="e.g. Shopping Mall"></div>
+              <div class="field"><label>Status on create</label><select id="newBazStatus"><option>Planned</option><option>Active</option></select></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Start date</label><input id="newBazStart" type="date"></div>
+              <div class="field"><label>End date</label><input id="newBazEnd" type="date"></div>
+            </div>
+            <div class="field"><label>Category discount overrides (optional)</label><textarea id="newBazDiscounts" rows="2" placeholder="Shirts:10, Bags:15"></textarea></div>
+            <div class="hint" style="margin-top:0;margin-bottom:10px;">Format: CategoryName:Percent, separated by commas. Only one bazaar should be Active at a time.</div>
+            <button class="btn btn-primary btn-block" id="addBazaarBtn">Create event</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="card settings-card">
+            <div class="section-title">Supabase connection</div>
+            <div class="field"><label>Project URL</label><input id="setSheetUrl" placeholder="https://xxxxx.supabase.co"></div>
+            <div class="field"><label>anon public key</label><input id="setSheetKey" placeholder="eyJhbGciOi..."></div>
+            <div style="display:flex;gap:10px;"><button class="btn btn-primary" id="saveSheetBtn">Save &amp; reconnect</button><button class="btn btn-danger" id="disconnectBtn">Disconnect</button></div>
+            <div style="margin-top:12px;font-size:12px;color:var(--ink-soft);">All products, stock, and sales live in this database — every device using these same credentials shares the same data, live, via Realtime.</div>
+          </div>
+          <div class="card settings-card">
+            <div class="section-title">Database schema (Supabase SQL)</div>
+            <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">This is the full schema — tables, Row Level Security, and the functions that run every sale, stock-in, return, and exchange as a single atomic database transaction so two devices can never both sell the last unit.</p>
+            <button class="btn btn-sm" id="copyScriptBtn" style="margin-bottom:8px;">Copy schema SQL</button>
+            <div class="code-block" id="scriptBlock"></div>
+          </div>
+          <div class="card settings-card">
+            <div class="section-title">Data &amp; security notes</div>
+            <div style="font-size:12.5px;color:var(--ink-soft);line-height:1.6;">Your data lives in Supabase, not on this device — use Supabase's dashboard (Database → Backups) for backups.<br><br>Because there's no login system, the "anon" key embedded in this app can <b>read</b> every table. It can only <b>write</b> through the guarded functions above (never directly to a table), so it can't corrupt stock or skip the discount/oversell checks — but treat this like any tool with no password: don't hand the URL out publicly if the sales data should stay private.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+</div>
+
+<div id="mobilenav">
+  <button class="active" data-view="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dash</button>
+  <button data-view="sell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h2l2.6 12.4a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 2-1.6L21 7H6"/></svg>Sell</button>
+  <button data-view="products"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/></svg>Products</button>
+  <button data-view="inventory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5z"/></svg>Inv.</button>
+  <button data-view="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/></svg>History</button>
+  <button data-view="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/></svg>Reports</button>
+  <button data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg>Set.</button>
+</div>
+
+<!-- Add / Edit product modal -->
+<div class="modal-bg" id="prodModalBg">
+  <div class="modal">
+    <h3 id="prodModalTitle">Add product</h3>
+    <div class="field"><label>Name</label><input id="fName" placeholder="e.g. Shirt A"></div>
+    <div class="field-row">
+      <div class="field"><label>Category</label><select id="fCategory"></select></div>
+      <div class="field"><label>Series / design (optional)</label><select id="fSeries"><option value="">—</option></select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Cost price</label><input id="fCost" type="number" step="0.01" min="0" placeholder="0.00"></div>
+      <div class="field"><label>Selling price</label><input id="fPrice" type="number" step="0.01" min="0" placeholder="0.00"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Current stock</label><input id="fStock" type="number" min="0" placeholder="0"></div>
+      <div class="field"><label>Minimum stock level</label><input id="fMinStock" type="number" min="0" placeholder="3"></div>
+    </div>
+    <div class="field"><label>Product-specific discount % (optional, overrides series/category)</label><input id="fDiscount" type="number" min="0" max="100" placeholder="0"></div>
+    <div class="field"><label>Product ID / barcode (blank = auto)</label><input id="fSku" class="mono" placeholder="auto-generated e.g. P000001"></div>
+    <input type="hidden" id="fEditingSku">
+    <div class="modal-actions">
+      <button class="btn" id="cancelProdBtn" style="flex:1;">Cancel</button>
+      <button class="btn btn-primary" id="saveProdBtn" style="flex:1;">Save product</button>
+    </div>
+  </div>
+</div>
+
+<!-- Print label modal -->
+<div class="modal-bg" id="labelModalBg">
+  <div class="modal">
+    <h3>Print label</h3>
+    <div class="field"><label>Label type</label><select id="labelTypeSelect"><option value="barcode">Barcode (Code128)</option><option value="qr">QR code</option></select></div>
+    <div class="label-preview" id="labelPreview"></div>
+    <div class="modal-actions"><button class="btn" id="closeLabelBtn" style="flex:1;">Close</button><button class="btn btn-primary" id="printLabelBtn" style="flex:1;">Print</button></div>
+  </div>
+</div>
+
+<!-- Camera modal -->
+<div class="modal-bg" id="camModal">
+  <div class="modal">
+    <h3>Scan with camera</h3>
+    <div id="camReader"></div>
+    <div class="modal-actions"><button class="btn btn-block" id="closeCamBtn">Cancel</button></div>
+  </div>
+</div>
+
+<!-- Browse / quick pick modal -->
+<div class="modal-bg" id="browseModalBg">
+  <div class="modal">
+    <h3>Browse products</h3>
+    <input id="browseSearch" placeholder="Search…" style="width:100%;padding:10px 12px;border-radius:7px;border:1px solid var(--line);margin-bottom:10px;">
+    <div class="quick-pick-list" id="quickPickList"></div>
+    <div class="modal-actions"><button class="btn btn-block" id="closeBrowseBtn">Close</button></div>
+  </div>
+</div>
+
+<!-- Stock in modal -->
+<div class="modal-bg" id="stockInModalBg">
+  <div class="modal">
+    <h3>Stock in</h3>
+    <div class="field"><label>Scan or select product</label><input id="siScan" class="mono" placeholder="Scan barcode / QR or Product ID"></div>
+    <div id="siProductInfo"></div>
+    <div class="field"><label>Quantity to add</label><input id="siQty" type="number" min="1" value="1"></div>
+    <div class="field"><label>Reference (optional)</label><input id="siRef" placeholder="e.g. PO-001"></div>
+    <div class="modal-actions"><button class="btn" id="cancelSiBtn" style="flex:1;">Cancel</button><button class="btn btn-primary" id="confirmSiBtn" style="flex:1;">Confirm stock in</button></div>
+  </div>
+</div>
+
+<!-- Adjust stock modal -->
+<div class="modal-bg" id="adjModalBg">
+  <div class="modal">
+    <h3>Adjust stock</h3>
+    <div class="field"><label>Scan or select product</label><input id="adjScan" class="mono" placeholder="Scan barcode / QR or Product ID"></div>
+    <div id="adjProductInfo"></div>
+    <div class="field"><label>Actual counted stock</label><input id="adjActual" type="number" min="0" placeholder="0"></div>
+    <div class="field"><label>Reason</label>
+      <select id="adjReason"><option>Damaged</option><option>Lost</option><option>Missing</option><option>Incorrect count</option><option>Other</option></select>
+    </div>
+    <div class="modal-actions"><button class="btn" id="cancelAdjBtn" style="flex:1;">Cancel</button><button class="btn btn-primary" id="confirmAdjBtn" style="flex:1;">Confirm adjustment</button></div>
+  </div>
+</div>
+
+<!-- Transaction detail modal -->
+<div class="modal-bg" id="txnDetailBg">
+  <div class="modal" id="txnDetailModal" style="max-width:520px;"></div>
+</div>
+
+<!-- Return item modal -->
+<div class="modal-bg" id="returnModalBg">
+  <div class="modal">
+    <h3>Return item</h3>
+    <div id="returnInfo" class="info-box"></div>
+    <div class="field"><label>Quantity to return</label><input id="returnQty" type="number" min="1" value="1"></div>
+    <div class="field"><label>Reason</label><select id="returnReason"><option>Customer Return</option><option>Damaged</option><option>Wrong Item</option><option>Other</option></select></div>
+    <div class="modal-actions"><button class="btn" id="cancelReturnBtn" style="flex:1;">Cancel</button><button class="btn btn-primary" id="confirmReturnBtn" style="flex:1;">Confirm return</button></div>
+  </div>
+</div>
+
+<!-- Exchange modal -->
+<div class="modal-bg" id="exchangeModalBg">
+  <div class="modal">
+    <h3>Exchange item</h3>
+    <div id="exchangeOldInfo" class="info-box"></div>
+    <div class="field"><label>Scan or enter the replacement product</label><input id="exchangeScan" class="mono" placeholder="Scan barcode / QR or Product ID"></div>
+    <div id="exchangeNewInfo"></div>
+    <div class="field"><label>Quantity of new item</label><input id="exchangeQty" type="number" min="1" value="1"></div>
+    <div class="modal-actions"><button class="btn" id="cancelExchangeBtn" style="flex:1;">Cancel</button><button class="btn btn-primary" id="confirmExchangeBtn" style="flex:1;">Confirm exchange</button></div>
+  </div>
+</div>
+
+<!-- Staff name modal (honor system, no login) -->
+<div class="modal-bg" id="staffModalBg">
+  <div class="modal">
+    <h3>Who's on this device?</h3>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">This just labels sales for reporting — it's not a login, and anyone can change it.</p>
+    <div class="field"><label>Name</label><input id="staffNameInput" list="staffNameOptions" placeholder="e.g. Maria"><datalist id="staffNameOptions"></datalist></div>
+    <div class="modal-actions"><button class="btn" id="cancelStaffBtn" style="flex:1;">Cancel</button><button class="btn btn-primary" id="confirmStaffBtn" style="flex:1;">Set</button></div>
+  </div>
+</div>
+
+<!-- POS setup modal (first run after connecting) -->
+<div class="modal-bg" id="posSetupBg">
+  <div class="modal">
+    <h3>Identify this device</h3>
+    <p style="font-size:13px;color:var(--ink-soft);margin-top:0;">Every sale is tagged with the POS that made it — no logins needed.</p>
+    <div class="field"><label>Use an existing POS</label><select id="posSetupExisting"><option value="">—</option></select></div>
+    <button class="btn btn-block" id="posSetupUseBtn" style="margin-bottom:14px;">Use selected</button>
+    <div class="hint" style="margin-bottom:8px;">Or register this as a new device:</div>
+    <div class="field"><label>Device name</label><input id="posSetupName" placeholder="e.g. Front Counter"></div>
+    <div class="field"><label>Device type</label><select id="posSetupType"><option>Laptop</option><option>Phone</option><option>Tablet</option><option>PC</option></select></div>
+    <button class="btn btn-primary btn-block" id="posSetupCreateBtn">Register &amp; use</button>
+  </div>
+</div>
+
+<div id="printArea" style="display:none;"></div>
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
