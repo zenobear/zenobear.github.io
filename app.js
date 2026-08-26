@@ -477,7 +477,7 @@ grant execute on function
 `;
 
 /* ===================== State ===================== */
-let cache = { products:[], categories:[], series:[], bazaars:[], posDevices:[], staff:[], transactions:[], movements:[], returns:[], exchanges:[] };
+let cache = { products:[], categories:[], series:[], sizes:[], colors:[], bazaars:[], posDevices:[], staff:[], transactions:[], movements:[], returns:[], exchanges:[] };
 let local = { supabaseUrl:'', supabaseAnonKey:'', posId:'', posName:'', posType:'', staffName:'', shopName:'Zeno Bear', currency:'₱' };
 let sb = null; // Supabase client instance
 let realtimeChannel = null;
@@ -532,9 +532,11 @@ async function apiPost(fnName, params){
   return data;
 }
 
-function normProduct(r){ return {id:r.id, barcode:r.barcode, name:r.name, category:r.category, series:r.series, cost:Number(r.cost)||0, price:Number(r.price)||0, stock:Number(r.stock)||0, minStock:Number(r.min_stock)||0, discount:Number(r.product_discount)||0, status:r.status||'Active'}; }
-function normCategory(r){ return {id:r.id, name:r.name, discount:Number(r.discount)||0}; }
-function normSeries(r){ return {id:r.id, name:r.name, category:r.category, discount:Number(r.discount)||0}; }
+function normProduct(r){ return {id:r.id, barcode:r.barcode, name:r.name, category:r.category, series:r.series, size:r.size||'', color:r.color||'', cost:Number(r.cost)||0, price:Number(r.price)||0, stock:Number(r.stock)||0, minStock:Number(r.min_stock)||0, discount:Number(r.product_discount)||0, status:r.status||'Active'}; }
+function normCategory(r){ return {id:r.id, name:r.name, code:r.code||'', discount:Number(r.discount)||0}; }
+function normSeries(r){ return {id:r.id, name:r.name, code:r.code||'', category:r.category, discount:Number(r.discount)||0}; }
+function normSize(r){ return {id:r.id, name:r.name}; }
+function normColor(r){ return {id:r.id, name:r.name}; }
 function normBazaar(r){ return {id:r.id, name:r.name, location:r.location, startDate:r.start_date, endDate:r.end_date, status:r.status, categoryDiscountsJSON:JSON.stringify(r.category_discounts||{})}; }
 function normPos(r){ return {id:r.id, name:r.name, type:r.type, status:r.status}; }
 function normStaff(r){ return {id:r.id, name:r.name, status:r.status}; }
@@ -559,6 +561,8 @@ async function refreshState(silent){
     cache.products = (data.products||[]).map(normProduct);
     cache.categories = (data.categories||[]).map(normCategory);
     cache.series = (data.series||[]).map(normSeries);
+    cache.sizes = (data.sizes||[]).map(normSize);
+    cache.colors = (data.colors||[]).map(normColor);
     cache.bazaars = (data.bazaars||[]).map(normBazaar);
     cache.posDevices = (data.posDevices||[]).map(normPos);
     cache.staff = (data.staff||[]).map(normStaff);
@@ -826,7 +830,7 @@ function startReplace(i){
   document.getElementById('scanMsg').innerHTML = `<div class="scan-msg ok">Scan the replacement for <b>${escapeHtml(cart[i].name)}</b>…</div>`;
   document.getElementById('scanInput').focus();
 }
-function cartLineFor(p, qty){ return {productId:p.id, name:p.name, category:p.category, series:p.series, price:p.price, discountPct:clientEffectiveDiscount(p), qty, stock:p.stock}; }
+function cartLineFor(p, qty){ return {productId:p.id, name:p.name, category:p.category, series:p.series, size:p.size, color:p.color, price:p.price, discountPct:clientEffectiveDiscount(p), qty, stock:p.stock}; }
 function addToCart(p){
   const existing = cart.find(c=>c.productId===p.id);
   if(existing){
@@ -852,9 +856,10 @@ function renderCart(){
   totalsBox.style.display='block';
   list.innerHTML = cart.map((c,i)=>{
     const finalPrice = +(c.price*(1-c.discountPct/100)).toFixed(2);
+    const variant = [c.size, c.color].filter(Boolean).join(' · ');
     return `<div class="cart-item">
       <div class="ci-info">
-        <div class="ci-name">${escapeHtml(c.name)}</div>
+        <div class="ci-name">${escapeHtml(c.name)}${variant?` <span class="tag">${escapeHtml(variant)}</span>`:''}</div>
         <div class="ci-sku mono">${escapeHtml(c.productId)}</div>
         <div class="ci-price-line">${c.discountPct>0?`<span class="ci-price-orig">${fmt(c.price)}</span><span>${fmt(finalPrice)}</span><span class="disc-badge">-${c.discountPct}%</span>`:`<span>${fmt(c.price)}</span>`}</div>
       </div>
@@ -1006,17 +1011,95 @@ function renderQuickPick(){
 
 /* ===================== PRODUCTS ===================== */
 function populateCategorySelects(){
-  const opts = '<option value="">Select category…</option>' + cache.categories.map(c=>`<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+  const opts = '<option value="">Select category…</option>' + cache.categories.map(c=>`<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}${c.code?' ('+escapeHtml(c.code)+')':''}</option>`).join('');
   document.getElementById('fCategory').innerHTML = opts;
   document.getElementById('newSeriesCategory').innerHTML = '<option value="">Select category…</option>' + cache.categories.map(c=>`<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
   const filterOpts = '<option value="">All categories</option>' + cache.categories.map(c=>`<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
   document.getElementById('prodCategoryFilter').innerHTML = filterOpts;
+  document.getElementById('fSizeOptions').innerHTML = cache.sizes.map(s=>`<option value="${escapeHtml(s.name)}"></option>`).join('');
+  document.getElementById('fColorOptions').innerHTML = cache.colors.map(c=>`<option value="${escapeHtml(c.name)}"></option>`).join('');
 }
 document.getElementById('fCategory').addEventListener('change', ()=>{
   const cat = document.getElementById('fCategory').value;
-  const opts = ['<option value="">—</option>'].concat(cache.series.filter(s=>s.category===cat).map(s=>`<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`));
+  const opts = ['<option value="">—</option>'].concat(cache.series.filter(s=>s.category===cat).map(s=>`<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}${s.code?' ('+escapeHtml(s.code)+')':''}</option>`));
   document.getElementById('fSeries').innerHTML = opts.join('');
+  updateSkuPreview();
 });
+document.getElementById('fSeries').addEventListener('change', updateSkuPreview);
+document.getElementById('fSize').addEventListener('input', updateSkuPreview);
+document.getElementById('fColor').addEventListener('input', updateSkuPreview);
+document.getElementById('fSku').addEventListener('input', ()=>{ skuManuallyEdited = true; });
+
+/* Inline "+ New category" / "+ New design" quick-add inside the product modal */
+document.getElementById('fCategoryNewToggle').onclick = ()=>{
+  const box = document.getElementById('fCategoryNewBox');
+  box.style.display = box.style.display==='none' ? 'block' : 'none';
+};
+document.getElementById('fSeriesNewToggle').onclick = ()=>{
+  const box = document.getElementById('fSeriesNewBox');
+  box.style.display = box.style.display==='none' ? 'block' : 'none';
+};
+document.getElementById('fCategoryNewSave').onclick = async ()=>{
+  const name = document.getElementById('fNewCatName').value.trim();
+  const code = document.getElementById('fNewCatCode').value.trim();
+  const discount = parseFloat(document.getElementById('fNewCatDiscount').value)||0;
+  if(!name){ showToast('Enter a category name.'); return; }
+  try{
+    await apiPost('add_category', {p_name:name, p_code:code, p_discount:discount});
+    await refreshState(true);
+    populateCategorySelects();
+    document.getElementById('fCategory').value = name;
+    document.getElementById('fCategory').dispatchEvent(new Event('change'));
+    document.getElementById('fCategoryNewBox').style.display = 'none';
+    document.getElementById('fNewCatName').value=''; document.getElementById('fNewCatCode').value=''; document.getElementById('fNewCatDiscount').value='';
+    showToast('Category added.');
+  }catch(e){ showToast(e.message, true); }
+};
+document.getElementById('fSeriesNewSave').onclick = async ()=>{
+  const category = document.getElementById('fCategory').value;
+  const name = document.getElementById('fNewSerName').value.trim();
+  const code = document.getElementById('fNewSerCode').value.trim();
+  const discount = parseFloat(document.getElementById('fNewSerDiscount').value)||0;
+  if(!category){ showToast('Pick a category first.'); return; }
+  if(!name){ showToast('Enter a design name.'); return; }
+  try{
+    await apiPost('add_series', {p_name:name, p_code:code, p_category:category, p_discount:discount});
+    await refreshState(true);
+    document.getElementById('fCategory').dispatchEvent(new Event('change'));
+    document.getElementById('fSeries').value = name;
+    document.getElementById('fSeriesNewBox').style.display = 'none';
+    document.getElementById('fNewSerName').value=''; document.getElementById('fNewSerCode').value=''; document.getElementById('fNewSerDiscount').value='';
+    updateSkuPreview();
+    showToast('Design added.');
+  }catch(e){ showToast(e.message, true); }
+};
+
+/* Live SKU builder: {Brand}-{CategoryCode}-{DesignCode}-{Size}-{Color} */
+let skuManuallyEdited = false;
+let lastAutoSku = '';
+function brandCode(){
+  const words = (local.shopName||'ZB').trim().split(/\s+/);
+  const code = words.map(w=>w.charAt(0)).join('').toUpperCase();
+  return code || 'ZB';
+}
+function buildSkuPreview(){
+  const catName = document.getElementById('fCategory').value;
+  const serName = document.getElementById('fSeries').value;
+  const size = document.getElementById('fSize').value.trim();
+  const color = document.getElementById('fColor').value.trim();
+  const cat = cache.categories.find(c=>c.name===catName);
+  const ser = cache.series.find(s=>s.name===serName && s.category===catName);
+  const catCode = cat ? (cat.code || cat.name.charAt(0).toUpperCase()) : '';
+  const serCode = ser ? (ser.code || ser.name.charAt(0).toUpperCase()) : '';
+  const parts = [brandCode(), catCode, serCode, size, color].map(x=>String(x||'').trim().toUpperCase().replace(/\s+/g,'')).filter(Boolean);
+  return parts.join('-');
+}
+function updateSkuPreview(){
+  if(skuManuallyEdited) return;
+  const sku = buildSkuPreview();
+  document.getElementById('fSku').value = sku;
+  lastAutoSku = sku;
+}
 
 function renderProductsTable(){
   const q = (document.getElementById('prodSearch').value||'').toLowerCase();
@@ -1039,6 +1122,7 @@ function renderProductsTable(){
       <td><b>${escapeHtml(p.name)}</b>${p.status!=='Active'?' <span class="tag">Inactive</span>':''}</td>
       <td class="mono">${escapeHtml(p.id)}</td>
       <td>${p.category?`<span class="tag">${escapeHtml(p.category)}</span>`:'—'}${p.series?` <span class="tag">${escapeHtml(p.series)}</span>`:''}</td>
+      <td>${p.size?`<span class="tag">${escapeHtml(p.size)}</span>`:''}${p.color?` <span class="tag">${escapeHtml(p.color)}</span>`:''}${!p.size && !p.color?'—':''}</td>
       <td class="mono">${fmt(p.cost)}</td>
       <td class="mono">${fmt(p.price)}</td>
       <td class="mono">${disc>0?disc+'%':'—'}</td>
@@ -1067,11 +1151,15 @@ document.getElementById('addProductBtn').onclick = ()=>openProductModal(null);
 document.getElementById('cancelProdBtn').onclick = ()=>document.getElementById('prodModalBg').classList.remove('show');
 function openProductModal(p){
   populateCategorySelects();
+  document.getElementById('fCategoryNewBox').style.display = 'none';
+  document.getElementById('fSeriesNewBox').style.display = 'none';
   document.getElementById('prodModalTitle').textContent = p?'Edit product':'Add product';
   document.getElementById('fName').value = p?p.name:'';
   document.getElementById('fCategory').value = p?(p.category||''):'';
   document.getElementById('fCategory').dispatchEvent(new Event('change'));
   setTimeout(()=>{ document.getElementById('fSeries').value = p?(p.series||''):''; }, 0);
+  document.getElementById('fSize').value = p?(p.size||''):'';
+  document.getElementById('fColor').value = p?(p.color||''):'';
   document.getElementById('fCost').value = p?p.cost:'';
   document.getElementById('fPrice').value = p?p.price:'';
   document.getElementById('fStock').value = p?p.stock:'';
@@ -1079,12 +1167,23 @@ function openProductModal(p){
   document.getElementById('fDiscount').value = p?p.discount:0;
   document.getElementById('fSku').value = p?p.id:'';
   document.getElementById('fEditingSku').value = p?p.id:'';
+  skuManuallyEdited = !!p; // don't auto-rewrite the SKU of an existing product
+  lastAutoSku = p?p.id:'';
+  if(!p) setTimeout(updateSkuPreview, 0);
   document.getElementById('prodModalBg').classList.add('show');
+}
+async function ensureRosterValue(kind, name){
+  if(!name) return;
+  const list = kind==='size' ? cache.sizes : cache.colors;
+  if(list.some(x=>x.name.toLowerCase()===name.toLowerCase())) return;
+  try{ await apiPost(kind==='size' ? 'add_size' : 'add_color', {p_name:name}); }catch(e){ /* non-fatal */ }
 }
 document.getElementById('saveProdBtn').onclick = async ()=>{
   const name = document.getElementById('fName').value.trim();
   const category = document.getElementById('fCategory').value;
   const series = document.getElementById('fSeries').value;
+  const size = document.getElementById('fSize').value.trim();
+  const color = document.getElementById('fColor').value.trim();
   const cost = parseFloat(document.getElementById('fCost').value)||0;
   const price = parseFloat(document.getElementById('fPrice').value);
   const stock = parseInt(document.getElementById('fStock').value,10);
@@ -1095,15 +1194,20 @@ document.getElementById('saveProdBtn').onclick = async ()=>{
   if(!name || !category || isNaN(price) || isNaN(stock)){ showToast('Fill in name, category, price and stock.'); return; }
   const btn = document.getElementById('saveProdBtn'); btn.disabled=true; btn.textContent='Saving…';
   try{
+    await ensureRosterValue('size', size);
+    await ensureRosterValue('color', color);
     if(!editing){
-      await apiPost('add_product', {p_id:id, p_name:name, p_category:category, p_series:series, p_cost:cost, p_price:price, p_stock:stock, p_min_stock:minStock, p_discount:discount});
+      await apiPost('add_product', {p_id:id, p_name:name, p_category:category, p_series:series, p_size:size, p_color:color, p_cost:cost, p_price:price, p_stock:stock, p_min_stock:minStock, p_discount:discount});
     } else {
-      await apiPost('update_product', {p_id:editing, p_name:name, p_category:category, p_series:series, p_cost:cost, p_price:price, p_stock:stock, p_min_stock:minStock, p_discount:discount});
+      await apiPost('update_product', {p_id:editing, p_name:name, p_category:category, p_series:series, p_size:size, p_color:color, p_cost:cost, p_price:price, p_stock:stock, p_min_stock:minStock, p_discount:discount});
     }
     document.getElementById('prodModalBg').classList.remove('show');
     showToast('Product saved.');
     await refreshState(true);
-  }catch(e){ showToast(e.message, true); }
+  }catch(e){
+    const msg = /duplicate key/i.test(e.message) ? 'That SKU already exists — adjust the Size/Color, or edit the SKU field.' : e.message;
+    showToast(msg, true);
+  }
   finally{ btn.disabled=false; btn.textContent='Save product'; }
 };
 async function toggleProductStatus(p){
@@ -1551,8 +1655,10 @@ document.getElementById('disconnectBtn').onclick = async ()=>{
 };
 
 function renderSettingsLists(){
-  document.getElementById('categoryList').innerHTML = cache.categories.length ? cache.categories.map(c=>`<div class="mgmt-row"><span>${escapeHtml(c.name)}</span><span class="mono">${c.discount}% default</span></div>`).join('') : '<div class="cart-empty">No categories yet.</div>';
-  document.getElementById('seriesList').innerHTML = cache.series.length ? cache.series.map(s=>`<div class="mgmt-row"><span>${escapeHtml(s.name)} <span class="tag">${escapeHtml(s.category)}</span></span><span class="mono">${s.discount}%</span></div>`).join('') : '<div class="cart-empty">No series yet.</div>';
+  document.getElementById('categoryList').innerHTML = cache.categories.length ? cache.categories.map(c=>`<div class="mgmt-row"><span>${escapeHtml(c.name)}${c.code?` <span class="tag mono">${escapeHtml(c.code)}</span>`:''}</span><span class="mono">${c.discount}% default</span></div>`).join('') : '<div class="cart-empty">No categories yet.</div>';
+  document.getElementById('seriesList').innerHTML = cache.series.length ? cache.series.map(s=>`<div class="mgmt-row"><span>${escapeHtml(s.name)}${s.code?` <span class="tag mono">${escapeHtml(s.code)}</span>`:''} <span class="tag">${escapeHtml(s.category)}</span></span><span class="mono">${s.discount}%</span></div>`).join('') : '<div class="cart-empty">No designs yet.</div>';
+  document.getElementById('sizeList').innerHTML = cache.sizes.length ? cache.sizes.map(s=>`<div class="mgmt-row"><span>${escapeHtml(s.name)}</span></div>`).join('') : '<div class="cart-empty">No sizes yet.</div>';
+  document.getElementById('colorList').innerHTML = cache.colors.length ? cache.colors.map(c=>`<div class="mgmt-row"><span>${escapeHtml(c.name)}</span></div>`).join('') : '<div class="cart-empty">No colors yet.</div>';
   document.getElementById('bazaarList').innerHTML = cache.bazaars.length ? cache.bazaars.map(b=>`<div class="mgmt-row"><span>${escapeHtml(b.name)}${b.location?' · '+escapeHtml(b.location):''}</span><span class="${b.status==='Active'?'badge-active':'badge-ended'}">${escapeHtml(b.status)}</span></div>`).join('') : '<div class="cart-empty">No events yet.</div>';
   populateCategorySelects();
   const sel = document.getElementById('switchPosSelect');
@@ -1560,17 +1666,31 @@ function renderSettingsLists(){
 }
 document.getElementById('addCategoryBtn').onclick = async ()=>{
   const name = document.getElementById('newCatName').value.trim();
+  const code = document.getElementById('newCatCode').value.trim();
   const discount = parseFloat(document.getElementById('newCatDiscount').value)||0;
   if(!name){ showToast('Enter a category name.'); return; }
-  try{ await apiPost('add_category', {p_name:name, p_discount:discount}); document.getElementById('newCatName').value=''; document.getElementById('newCatDiscount').value=''; showToast('Category added.'); await refreshState(true); renderSettingsLists(); }
+  try{ await apiPost('add_category', {p_name:name, p_code:code, p_discount:discount}); document.getElementById('newCatName').value=''; document.getElementById('newCatCode').value=''; document.getElementById('newCatDiscount').value=''; showToast('Category added.'); await refreshState(true); renderSettingsLists(); }
   catch(e){ showToast(e.message, true); }
 };
 document.getElementById('addSeriesBtn').onclick = async ()=>{
   const category = document.getElementById('newSeriesCategory').value;
   const name = document.getElementById('newSeriesName').value.trim();
+  const code = document.getElementById('newSeriesCode').value.trim();
   const discount = parseFloat(document.getElementById('newSeriesDiscount').value)||0;
-  if(!category || !name){ showToast('Pick a category and enter a series name.'); return; }
-  try{ await apiPost('add_series', {p_name:name, p_category:category, p_discount:discount}); document.getElementById('newSeriesName').value=''; document.getElementById('newSeriesDiscount').value=''; showToast('Series added.'); await refreshState(true); renderSettingsLists(); }
+  if(!category || !name){ showToast('Pick a category and enter a design name.'); return; }
+  try{ await apiPost('add_series', {p_name:name, p_code:code, p_category:category, p_discount:discount}); document.getElementById('newSeriesName').value=''; document.getElementById('newSeriesCode').value=''; document.getElementById('newSeriesDiscount').value=''; showToast('Design added.'); await refreshState(true); renderSettingsLists(); }
+  catch(e){ showToast(e.message, true); }
+};
+document.getElementById('addSizeBtn').onclick = async ()=>{
+  const name = document.getElementById('newSizeName').value.trim();
+  if(!name){ showToast('Enter a size.'); return; }
+  try{ await apiPost('add_size', {p_name:name}); document.getElementById('newSizeName').value=''; showToast('Size added.'); await refreshState(true); renderSettingsLists(); }
+  catch(e){ showToast(e.message, true); }
+};
+document.getElementById('addColorBtn').onclick = async ()=>{
+  const name = document.getElementById('newColorName').value.trim();
+  if(!name){ showToast('Enter a color.'); return; }
+  try{ await apiPost('add_color', {p_name:name}); document.getElementById('newColorName').value=''; showToast('Color added.'); await refreshState(true); renderSettingsLists(); }
   catch(e){ showToast(e.message, true); }
 };
 document.getElementById('addBazaarBtn').onclick = async ()=>{
