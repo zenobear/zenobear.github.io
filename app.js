@@ -505,7 +505,6 @@ let busy = false;
 let currentRole = null; // 'staff' | 'owner' — chosen fresh each app open, never persisted
 
 document.getElementById('onboardScriptBlock').textContent = SCHEMA_SQL;
-document.getElementById('scriptBlock').textContent = SCHEMA_SQL;
 
 /* ===================== Local (per-device) settings ===================== */
 /* Uses the browser's own localStorage — this is a normal hosted site now,
@@ -641,7 +640,6 @@ async function withBusy(fn){
 
 /* ===================== Onboarding ===================== */
 document.getElementById('onboardCopyScriptBtn').onclick = ()=>navigator.clipboard.writeText(SCHEMA_SQL).then(()=>showToast('Schema copied.'));
-document.getElementById('copyScriptBtn').onclick = ()=>navigator.clipboard.writeText(SCHEMA_SQL).then(()=>showToast('Schema copied.'));
 document.getElementById('onboardConnectBtn').onclick = async ()=>{
   const url = document.getElementById('onboardUrl').value.trim();
   const key = document.getElementById('onboardKey').value.trim();
@@ -1022,7 +1020,6 @@ function renderQuickPick(){
 function populateCategorySelects(){
   const opts = '<option value="">Select category…</option>' + cache.categories.map(c=>`<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}${c.code?' ('+escapeHtml(c.code)+')':''}</option>`).join('');
   document.getElementById('fCategory').innerHTML = opts;
-  document.getElementById('newSeriesCategory').innerHTML = '<option value="">Select category…</option>' + cache.categories.map(c=>`<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
   const filterOpts = '<option value="">All categories</option>' + cache.categories.map(c=>`<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
   document.getElementById('prodCategoryFilter').innerHTML = filterOpts;
   document.getElementById('fSizeOptions').innerHTML = cache.sizes.map(s=>`<option value="${escapeHtml(s.name)}"></option>`).join('');
@@ -1171,7 +1168,6 @@ function openProductModal(p){
   document.getElementById('fColor').value = p?(p.color||''):'';
   document.getElementById('fCost').value = p?p.cost:'';
   document.getElementById('fPrice').value = p?p.price:'';
-  document.getElementById('fDiscount').value = p?p.discount:0;
   document.getElementById('fSku').value = p?p.id:'';
   document.getElementById('fEditingSku').value = p?p.id:'';
   skuManuallyEdited = !!p; // don't auto-rewrite the SKU of an existing product
@@ -1193,7 +1189,6 @@ document.getElementById('saveProdBtn').onclick = async ()=>{
   const color = document.getElementById('fColor').value.trim();
   const cost = parseFloat(document.getElementById('fCost').value)||0;
   const price = parseFloat(document.getElementById('fPrice').value);
-  const discount = parseFloat(document.getElementById('fDiscount').value)||0;
   const id = document.getElementById('fSku').value.trim();
   const editing = document.getElementById('fEditingSku').value;
   if(!name || !category || isNaN(price)){ showToast('Fill in name, category, and price.'); return; }
@@ -1202,9 +1197,9 @@ document.getElementById('saveProdBtn').onclick = async ()=>{
     await ensureRosterValue('size', size);
     await ensureRosterValue('color', color);
     if(!editing){
-      await apiPost('add_product', {p_id:id, p_name:name, p_category:category, p_series:series, p_size:size, p_color:color, p_cost:cost, p_price:price, p_discount:discount});
+      await apiPost('add_product', {p_id:id, p_name:name, p_category:category, p_series:series, p_size:size, p_color:color, p_cost:cost, p_price:price, p_discount:0});
     } else {
-      await apiPost('update_product', {p_id:editing, p_name:name, p_category:category, p_series:series, p_size:size, p_color:color, p_cost:cost, p_price:price, p_discount:discount});
+      await apiPost('update_product', {p_id:editing, p_name:name, p_category:category, p_series:series, p_size:size, p_color:color, p_cost:cost, p_price:price, p_discount:0});
     }
     document.getElementById('prodModalBg').classList.remove('show');
     showToast('Product saved.');
@@ -1617,8 +1612,6 @@ function applyLocalToUI(){
   document.getElementById('shopNameLabel').textContent = local.shopName || 'Zeno Bear';
   document.getElementById('setShopName').value = local.shopName || '';
   document.getElementById('setCurrency').value = local.currency || '₱';
-  document.getElementById('setSheetUrl').value = local.supabaseUrl || '';
-  document.getElementById('setSheetKey').value = local.supabaseAnonKey || '';
   document.getElementById('posBadge').textContent = local.posName ? 'POS: '+local.posName : 'POS —';
   document.getElementById('sidePosLabel').innerHTML = local.posName ? `This device: <b>${escapeHtml(local.posName)}</b>` : '';
   document.getElementById('sideRoleLabel').innerHTML = currentRole ? `Signed in as: <b>${currentRole==='staff' ? escapeHtml(local.staffName||'Staff') : 'Owner / Admin'}</b>` : '';
@@ -1630,86 +1623,12 @@ document.getElementById('saveShopBtn').onclick = async ()=>{
   await saveLocal(); applyLocalToUI(); renderAll();
   showToast('Saved.');
 };
-document.getElementById('saveSheetBtn').onclick = async ()=>{
-  const url = document.getElementById('setSheetUrl').value.trim();
-  const key = document.getElementById('setSheetKey').value.trim();
-  if(!url || !key){ showToast('Enter both the Project URL and anon key.'); return; }
-  local.supabaseUrl = url; local.supabaseAnonKey = key; sb = null;
-  const ok = await refreshState(true);
-  if(ok){ await saveLocal(); showToast('Reconnected.'); }
-  else showToast('Could not reach Supabase with those credentials.', true);
-};
-document.getElementById('disconnectBtn').onclick = async ()=>{
-  if(!confirm('Disconnect from Supabase? You can reconnect any time — nothing in the database is deleted.')) return;
-  local = {supabaseUrl:'', supabaseAnonKey:'', posId:'', posName:'', posType:'', staffName:'', shopName:'Zeno Bear', currency:'₱'};
-  await saveLocal();
-  if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeChannel=null; }
-  sb = null;
-  clearInterval(pollTimer); pollTimer=null; currentRole=null;
-  document.body.classList.remove('staff-mode');
-  hideAllGateScreens();
-  document.getElementById('connectScreen').style.display='flex';
-};
 
 function renderSettingsLists(){
-  document.getElementById('categoryList').innerHTML = cache.categories.length ? cache.categories.map(c=>`<div class="mgmt-row"><span>${escapeHtml(c.name)}${c.code?` <span class="tag mono">${escapeHtml(c.code)}</span>`:''}</span><span class="mono">${c.discount}% default</span></div>`).join('') : '<div class="cart-empty">No categories yet.</div>';
-  document.getElementById('seriesList').innerHTML = cache.series.length ? cache.series.map(s=>`<div class="mgmt-row"><span>${escapeHtml(s.name)}${s.code?` <span class="tag mono">${escapeHtml(s.code)}</span>`:''} <span class="tag">${escapeHtml(s.category)}</span></span><span class="mono">${s.discount}%</span></div>`).join('') : '<div class="cart-empty">No designs yet.</div>';
-  document.getElementById('sizeList').innerHTML = cache.sizes.length ? cache.sizes.map(s=>`<div class="mgmt-row"><span>${escapeHtml(s.name)}</span></div>`).join('') : '<div class="cart-empty">No sizes yet.</div>';
-  document.getElementById('colorList').innerHTML = cache.colors.length ? cache.colors.map(c=>`<div class="mgmt-row"><span>${escapeHtml(c.name)}</span></div>`).join('') : '<div class="cart-empty">No colors yet.</div>';
-  document.getElementById('bazaarList').innerHTML = cache.bazaars.length ? cache.bazaars.map(b=>`<div class="mgmt-row"><span>${escapeHtml(b.name)}${b.location?' · '+escapeHtml(b.location):''}</span><span class="${b.status==='Active'?'badge-active':'badge-ended'}">${escapeHtml(b.status)}</span></div>`).join('') : '<div class="cart-empty">No events yet.</div>';
   populateCategorySelects();
   const sel = document.getElementById('switchPosSelect');
   sel.innerHTML = cache.posDevices.map(p=>`<option value="${escapeHtml(p.id)}" ${p.id===local.posId?'selected':''}>${escapeHtml(p.name)} (${escapeHtml(p.type)})</option>`).join('');
 }
-document.getElementById('addCategoryBtn').onclick = async ()=>{
-  const name = document.getElementById('newCatName').value.trim();
-  const code = document.getElementById('newCatCode').value.trim();
-  const discount = parseFloat(document.getElementById('newCatDiscount').value)||0;
-  if(!name){ showToast('Enter a category name.'); return; }
-  try{ await apiPost('add_category', {p_name:name, p_code:code, p_discount:discount}); document.getElementById('newCatName').value=''; document.getElementById('newCatCode').value=''; document.getElementById('newCatDiscount').value=''; showToast('Category added.'); await refreshState(true); renderSettingsLists(); }
-  catch(e){ showToast(e.message, true); }
-};
-document.getElementById('addSeriesBtn').onclick = async ()=>{
-  const category = document.getElementById('newSeriesCategory').value;
-  const name = document.getElementById('newSeriesName').value.trim();
-  const code = document.getElementById('newSeriesCode').value.trim();
-  const discount = parseFloat(document.getElementById('newSeriesDiscount').value)||0;
-  if(!category || !name){ showToast('Pick a category and enter a design name.'); return; }
-  try{ await apiPost('add_series', {p_name:name, p_code:code, p_category:category, p_discount:discount}); document.getElementById('newSeriesName').value=''; document.getElementById('newSeriesCode').value=''; document.getElementById('newSeriesDiscount').value=''; showToast('Design added.'); await refreshState(true); renderSettingsLists(); }
-  catch(e){ showToast(e.message, true); }
-};
-document.getElementById('addSizeBtn').onclick = async ()=>{
-  const name = document.getElementById('newSizeName').value.trim();
-  if(!name){ showToast('Enter a size.'); return; }
-  try{ await apiPost('add_size', {p_name:name}); document.getElementById('newSizeName').value=''; showToast('Size added.'); await refreshState(true); renderSettingsLists(); }
-  catch(e){ showToast(e.message, true); }
-};
-document.getElementById('addColorBtn').onclick = async ()=>{
-  const name = document.getElementById('newColorName').value.trim();
-  if(!name){ showToast('Enter a color.'); return; }
-  try{ await apiPost('add_color', {p_name:name}); document.getElementById('newColorName').value=''; showToast('Color added.'); await refreshState(true); renderSettingsLists(); }
-  catch(e){ showToast(e.message, true); }
-};
-document.getElementById('addBazaarBtn').onclick = async ()=>{
-  const name = document.getElementById('newBazName').value.trim();
-  const location = document.getElementById('newBazLoc').value.trim();
-  const status = document.getElementById('newBazStatus').value;
-  const startDate = document.getElementById('newBazStart').value;
-  const endDate = document.getElementById('newBazEnd').value;
-  const raw = document.getElementById('newBazDiscounts').value.trim();
-  if(!name){ showToast('Enter an event name.'); return; }
-  const categoryDiscounts = {};
-  raw.split(',').forEach(pair=>{
-    const [k,v] = pair.split(':');
-    if(k && v && !isNaN(parseFloat(v))) categoryDiscounts[k.trim()] = parseFloat(v);
-  });
-  try{
-    await apiPost('add_bazaar', {p_name:name, p_location:location, p_status:status, p_start_date:startDate||null, p_end_date:endDate||null, p_category_discounts:categoryDiscounts});
-    ['newBazName','newBazLoc','newBazStart','newBazEnd','newBazDiscounts'].forEach(id=>document.getElementById(id).value='');
-    showToast('Event created.');
-    await refreshState(true); renderSettingsLists();
-  }catch(e){ showToast(e.message, true); }
-};
 document.getElementById('switchPosBtn').onclick = async ()=>{
   const id = document.getElementById('switchPosSelect').value;
   const p = cache.posDevices.find(x=>x.id===id);
