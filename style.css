@@ -207,6 +207,20 @@ tr.clickable:hover td{background:var(--surface-alt);}
   .topbar-stats{display:none;}
   #topbar{padding:13px 15px;}
   #content{padding:16px 15px 80px 15px;}
+
+  /* Staff only ever has Sell — no point showing a nav bar for one item */
+  body.staff-mode #mobilenav{display:none;}
+  body.staff-mode #content{padding-bottom:16px;}
+
+  /* Bigger touch targets across the board on phones */
+  .btn{padding:11px 16px;font-size:14.5px;}
+  .btn-sm{padding:9px 12px;font-size:13px;}
+  .ci-step button{width:34px;height:34px;font-size:18px;}
+  .ci-rm, .ci-rep{font-size:19px;padding:6px;}
+  #scanInput{padding:15px 16px;}
+  .cam-btn{padding:12px 16px;}
+  .btn-toggle{padding:15px;font-size:15px;}
+  .field input, .field select, .field textarea{padding:12px 12px;font-size:15px;}
 }
 .toast{position:fixed;bottom:18px;right:18px;background:var(--black);color:white;padding:11px 16px;border-radius:var(--radius);font-size:13px;box-shadow:none;border:1px solid var(--black);z-index:100;opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none;max-width:340px;}
 .toast.show{opacity:1;transform:translateY(0);}
