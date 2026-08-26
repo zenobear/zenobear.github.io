@@ -204,7 +204,7 @@
       </div>
       <div class="card" style="overflow-x:auto;">
         <table>
-          <thead><tr><th>Item</th><th>Product ID</th><th>Category / Series</th><th>Cost</th><th>Price</th><th>Discount</th><th>Stock</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Item</th><th>Product ID</th><th>Category / Design</th><th>Size / Color</th><th>Cost</th><th>Price</th><th>Discount</th><th>Stock</th><th>Status</th><th></th></tr></thead>
           <tbody id="prodTbody"></tbody>
         </table>
         <div class="empty-state" id="prodEmpty" style="display:none;">No products yet. Add your first item to generate its barcode/QR label.</div>
@@ -287,7 +287,7 @@
       </div>
       <div class="dash-grid" style="margin-top:18px;">
         <div class="card" style="padding:20px;">
-          <div class="section-title">Sales by series / design</div>
+          <div class="section-title">Sales by design</div>
           <div id="repBySeries"></div>
         </div>
         <div class="card" style="padding:20px;">
@@ -332,21 +332,41 @@
             <div id="categoryList"></div>
             <div class="inline-form">
               <input id="newCatName" placeholder="Category name">
+              <input id="newCatCode" class="mono" placeholder="Code e.g. M" style="max-width:90px;">
               <input id="newCatDiscount" type="number" min="0" max="100" placeholder="Discount %" style="max-width:110px;">
               <button class="btn btn-sm" id="addCategoryBtn">Add</button>
             </div>
           </div>
 
           <div class="card settings-card">
-            <div class="section-title">Series / Designs</div>
+            <div class="section-title">Designs</div>
             <div id="seriesList"></div>
             <div class="inline-form">
               <select id="newSeriesCategory"></select>
-              <input id="newSeriesName" placeholder="Series / design name">
+              <input id="newSeriesName" placeholder="Design name">
+              <input id="newSeriesCode" class="mono" placeholder="Code e.g. D01" style="max-width:100px;">
               <input id="newSeriesDiscount" type="number" min="0" max="100" placeholder="Discount %" style="max-width:110px;">
               <button class="btn btn-sm" id="addSeriesBtn">Add</button>
             </div>
-            <div class="hint">Discount priority: product discount → series discount → active bazaar override → category discount. Only one applies — they never stack.</div>
+            <div class="hint">Discount priority: product discount → design discount → active bazaar override → category discount. Only one applies — they never stack.</div>
+          </div>
+
+          <div class="card settings-card">
+            <div class="section-title">Sizes</div>
+            <div id="sizeList"></div>
+            <div class="inline-form">
+              <input id="newSizeName" placeholder="e.g. L">
+              <button class="btn btn-sm" id="addSizeBtn">Add</button>
+            </div>
+          </div>
+
+          <div class="card settings-card">
+            <div class="section-title">Colors</div>
+            <div id="colorList"></div>
+            <div class="inline-form">
+              <input id="newColorName" placeholder="e.g. Black">
+              <button class="btn btn-sm" id="addColorBtn">Add</button>
+            </div>
           </div>
 
           <div class="card settings-card">
@@ -407,11 +427,40 @@
 <div class="modal-bg" id="prodModalBg">
   <div class="modal">
     <h3 id="prodModalTitle">Add product</h3>
-    <div class="field"><label>Name</label><input id="fName" placeholder="e.g. Shirt A"></div>
+    <div class="field"><label>Name</label><input id="fName" placeholder="e.g. Classic Tee"></div>
     <div class="field-row">
-      <div class="field"><label>Category</label><select id="fCategory"></select></div>
-      <div class="field"><label>Series / design (optional)</label><select id="fSeries"><option value="">—</option></select></div>
+      <div class="field">
+        <label>Category</label>
+        <select id="fCategory"></select>
+        <button type="button" class="btn btn-sm" id="fCategoryNewToggle" style="margin-top:6px;">+ New category</button>
+        <div id="fCategoryNewBox" style="display:none;margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:var(--radius);">
+          <div class="field-row">
+            <div class="field"><label>Name</label><input id="fNewCatName" placeholder="e.g. Shirts"></div>
+            <div class="field"><label>Code</label><input id="fNewCatCode" class="mono" placeholder="e.g. M" maxlength="6"></div>
+          </div>
+          <div class="field"><label>Default discount %</label><input id="fNewCatDiscount" type="number" min="0" max="100" placeholder="0"></div>
+          <button type="button" class="btn btn-sm btn-primary btn-block" id="fCategoryNewSave">Add category</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Design (optional)</label>
+        <select id="fSeries"><option value="">—</option></select>
+        <button type="button" class="btn btn-sm" id="fSeriesNewToggle" style="margin-top:6px;">+ New design</button>
+        <div id="fSeriesNewBox" style="display:none;margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:var(--radius);">
+          <div class="field-row">
+            <div class="field"><label>Name</label><input id="fNewSerName" placeholder="e.g. Design 1"></div>
+            <div class="field"><label>Code</label><input id="fNewSerCode" class="mono" placeholder="e.g. D01" maxlength="6"></div>
+          </div>
+          <div class="field"><label>Discount % (blank = use category's)</label><input id="fNewSerDiscount" type="number" min="0" max="100" placeholder="0"></div>
+          <button type="button" class="btn btn-sm btn-primary btn-block" id="fSeriesNewSave">Add design</button>
+        </div>
+      </div>
     </div>
+    <div class="field-row">
+      <div class="field"><label>Size (optional)</label><input id="fSize" list="fSizeOptions" placeholder="e.g. L"><datalist id="fSizeOptions"></datalist></div>
+      <div class="field"><label>Color (optional)</label><input id="fColor" list="fColorOptions" placeholder="e.g. Black"><datalist id="fColorOptions"></datalist></div>
+    </div>
+    <div class="hint" style="margin-top:-6px;margin-bottom:12px;">Type a new size or color and it's saved for next time — no need to set these up first.</div>
     <div class="field-row">
       <div class="field"><label>Cost price</label><input id="fCost" type="number" step="0.01" min="0" placeholder="0.00"></div>
       <div class="field"><label>Selling price</label><input id="fPrice" type="number" step="0.01" min="0" placeholder="0.00"></div>
@@ -420,8 +469,8 @@
       <div class="field"><label>Current stock</label><input id="fStock" type="number" min="0" placeholder="0"></div>
       <div class="field"><label>Minimum stock level</label><input id="fMinStock" type="number" min="0" placeholder="3"></div>
     </div>
-    <div class="field"><label>Product-specific discount % (optional, overrides series/category)</label><input id="fDiscount" type="number" min="0" max="100" placeholder="0"></div>
-    <div class="field"><label>Product ID / barcode (blank = auto)</label><input id="fSku" class="mono" placeholder="auto-generated e.g. P000001"></div>
+    <div class="field"><label>Product-specific discount % (optional, overrides design/category)</label><input id="fDiscount" type="number" min="0" max="100" placeholder="0"></div>
+    <div class="field"><label>SKU / barcode</label><input id="fSku" class="mono" placeholder="builds automatically as you fill in the fields above"></div>
     <input type="hidden" id="fEditingSku">
     <div class="modal-actions">
       <button class="btn" id="cancelProdBtn" style="flex:1;">Cancel</button>
