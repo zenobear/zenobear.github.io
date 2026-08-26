@@ -307,84 +307,12 @@
               <button class="btn btn-sm" id="addPosBtn">Register</button>
             </div>
           </div>
-
-          <div class="card settings-card">
-            <div class="section-title">Categories</div>
-            <div id="categoryList"></div>
-            <div class="inline-form">
-              <input id="newCatName" placeholder="Category name">
-              <input id="newCatCode" class="mono" placeholder="Code e.g. M" style="max-width:90px;">
-              <input id="newCatDiscount" type="number" min="0" max="100" placeholder="Discount %" style="max-width:110px;">
-              <button class="btn btn-sm" id="addCategoryBtn">Add</button>
-            </div>
-          </div>
-
-          <div class="card settings-card">
-            <div class="section-title">Designs</div>
-            <div id="seriesList"></div>
-            <div class="inline-form">
-              <select id="newSeriesCategory"></select>
-              <input id="newSeriesName" placeholder="Design name">
-              <input id="newSeriesCode" class="mono" placeholder="Code e.g. D01" style="max-width:100px;">
-              <input id="newSeriesDiscount" type="number" min="0" max="100" placeholder="Discount %" style="max-width:110px;">
-              <button class="btn btn-sm" id="addSeriesBtn">Add</button>
-            </div>
-            <div class="hint">Discount priority: product discount → design discount → active bazaar override → category discount. Only one applies — they never stack.</div>
-          </div>
-
-          <div class="card settings-card">
-            <div class="section-title">Sizes</div>
-            <div id="sizeList"></div>
-            <div class="inline-form">
-              <input id="newSizeName" placeholder="e.g. L">
-              <button class="btn btn-sm" id="addSizeBtn">Add</button>
-            </div>
-          </div>
-
-          <div class="card settings-card">
-            <div class="section-title">Colors</div>
-            <div id="colorList"></div>
-            <div class="inline-form">
-              <input id="newColorName" placeholder="e.g. Black">
-              <button class="btn btn-sm" id="addColorBtn">Add</button>
-            </div>
-          </div>
-
-          <div class="card settings-card">
-            <div class="section-title">Bazaar / events</div>
-            <div id="bazaarList"></div>
-            <div class="field" style="margin-top:10px;"><label>Event name</label><input id="newBazName" placeholder="e.g. August Bazaar 2026"></div>
-            <div class="field-row">
-              <div class="field"><label>Location</label><input id="newBazLoc" placeholder="e.g. Shopping Mall"></div>
-              <div class="field"><label>Status on create</label><select id="newBazStatus"><option>Planned</option><option>Active</option></select></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label>Start date</label><input id="newBazStart" type="date"></div>
-              <div class="field"><label>End date</label><input id="newBazEnd" type="date"></div>
-            </div>
-            <div class="field"><label>Category discount overrides (optional)</label><textarea id="newBazDiscounts" rows="2" placeholder="Shirts:10, Bags:15"></textarea></div>
-            <div class="hint" style="margin-top:0;margin-bottom:10px;">Format: CategoryName:Percent, separated by commas. Only one bazaar should be Active at a time.</div>
-            <button class="btn btn-primary btn-block" id="addBazaarBtn">Create event</button>
-          </div>
         </div>
 
         <div>
           <div class="card settings-card">
-            <div class="section-title">Supabase connection</div>
-            <div class="field"><label>Project URL</label><input id="setSheetUrl" placeholder="https://xxxxx.supabase.co"></div>
-            <div class="field"><label>anon public key</label><input id="setSheetKey" placeholder="eyJhbGciOi..."></div>
-            <div style="display:flex;gap:10px;"><button class="btn btn-primary" id="saveSheetBtn">Save &amp; reconnect</button><button class="btn btn-danger" id="disconnectBtn">Disconnect</button></div>
-            <div style="margin-top:12px;font-size:12px;color:var(--ink-soft);">All products, stock, and sales live in this database — every device using these same credentials shares the same data, live, via Realtime.</div>
-          </div>
-          <div class="card settings-card">
-            <div class="section-title">Database schema (Supabase SQL)</div>
-            <p style="font-size:12.5px;color:var(--ink-soft);margin-top:0;">This is the full schema — tables, Row Level Security, and the functions that run every sale, stock-in, return, and exchange as a single atomic database transaction so two devices can never both sell the last unit.</p>
-            <button class="btn btn-sm" id="copyScriptBtn" style="margin-bottom:8px;">Copy schema SQL</button>
-            <div class="code-block" id="scriptBlock"></div>
-          </div>
-          <div class="card settings-card">
             <div class="section-title">Data &amp; security notes</div>
-            <div style="font-size:12.5px;color:var(--ink-soft);line-height:1.6;">Your data lives in Supabase, not on this device — use Supabase's dashboard (Database → Backups) for backups.<br><br>Because there's no login system, the "anon" key embedded in this app can <b>read</b> every table. It can only <b>write</b> through the guarded functions above (never directly to a table), so it can't corrupt stock or skip the discount/oversell checks — but treat this like any tool with no password: don't hand the URL out publicly if the sales data should stay private.</div>
+            <div style="font-size:12.5px;color:var(--ink-soft);line-height:1.6;">Your data lives in Supabase, not on this device — use Supabase's dashboard (Database → Backups) for backups.<br><br>Because there's no login system, the "anon" key embedded in this app can <b>read</b> every table. It can only <b>write</b> through guarded functions (never directly to a table), so it can't corrupt stock or skip the discount/oversell checks — but treat this like any tool with no password: don't hand the site's URL out publicly if the sales data should stay private.</div>
           </div>
         </div>
       </div>
@@ -445,7 +373,6 @@
       <div class="field"><label>Cost price</label><input id="fCost" type="number" step="0.01" min="0" placeholder="0.00"></div>
       <div class="field"><label>Selling price</label><input id="fPrice" type="number" step="0.01" min="0" placeholder="0.00"></div>
     </div>
-    <div class="field"><label>Product-specific discount % (optional, overrides design/category)</label><input id="fDiscount" type="number" min="0" max="100" placeholder="0"></div>
     <div class="field"><label>SKU / barcode</label><input id="fSku" class="mono" placeholder="builds automatically as you fill in the fields above"></div>
     <input type="hidden" id="fEditingSku">
     <div class="hint" style="margin-bottom:0;">This just registers the product — add its starting stock afterward from the Inventory tab (Stock in).</div>
