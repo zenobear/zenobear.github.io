@@ -478,7 +478,7 @@ grant execute on function
 
 /* ===================== State ===================== */
 let cache = { products:[], categories:[], series:[], bazaars:[], posDevices:[], staff:[], transactions:[], movements:[], returns:[], exchanges:[] };
-let local = { supabaseUrl:'', supabaseAnonKey:'', posId:'', posName:'', posType:'', staffName:'', shopName:'Till', currency:'₱' };
+let local = { supabaseUrl:'', supabaseAnonKey:'', posId:'', posName:'', posType:'', staffName:'', shopName:'Zeno Bear', currency:'₱' };
 let sb = null; // Supabase client instance
 let realtimeChannel = null;
 let refreshDebounceTimer = null;
@@ -643,8 +643,8 @@ document.getElementById('onboardConnectBtn').onclick = async ()=>{
 
 function startApp(){
   document.getElementById('connectScreen').style.display = 'none';
-  document.getElementById('roleShopName').textContent = local.shopName || 'Till';
-  document.getElementById('roleShopMark').textContent = (local.shopName||'T').trim().charAt(0).toUpperCase() || 'T';
+  document.getElementById('roleShopName').textContent = local.shopName || 'Zeno Bear';
+  document.getElementById('roleShopMark').textContent = (local.shopName||'Zeno Bear').trim().charAt(0).toUpperCase() || 'Z';
   showRoleScreen();
   if(!pollTimer) pollTimer = setInterval(()=>refreshState(true), 45000); // fallback safety net; Realtime handles the live updates
 }
@@ -950,7 +950,7 @@ function renderReceipt(t){
   const wrap = document.getElementById('receiptWrap');
   const dt = new Date(t.timestamp);
   wrap.innerHTML = `<div class="receipt" id="liveReceipt">
-    <div class="receipt-title">${escapeHtml(local.shopName||'TILL')} · TXN #${t.txnId}${t.eventName?' · '+escapeHtml(t.eventName):''}</div>
+    <div class="receipt-title">${escapeHtml(local.shopName||'ZENO BEAR')} · TXN #${t.txnId}${t.eventName?' · '+escapeHtml(t.eventName):''}</div>
     ${t.items.map(it=>`<div class="receipt-line"><span>${escapeHtml(it.name)} ×${it.qty}${it.discountPct>0?` (-${it.discountPct}%)`:''}</span><span>${fmt(it.subtotal)}</span></div>`).join('')}
     <div class="receipt-line" style="color:var(--ink-soft);"><span>Subtotal</span><span>${fmt(t.subtotal)}</span></div>
     ${t.totalDiscount>0?`<div class="receipt-line" style="color:var(--ink-soft);"><span>Discount</span><span>−${fmt(t.totalDiscount)}</span></div>`:''}
@@ -1513,7 +1513,7 @@ function renderReports(){
 
 /* ===================== SETTINGS ===================== */
 function applyLocalToUI(){
-  document.getElementById('shopNameLabel').textContent = local.shopName || 'Till';
+  document.getElementById('shopNameLabel').textContent = local.shopName || 'Zeno Bear';
   document.getElementById('setShopName').value = local.shopName || '';
   document.getElementById('setCurrency').value = local.currency || '₱';
   document.getElementById('setSheetUrl').value = local.supabaseUrl || '';
@@ -1524,7 +1524,7 @@ function applyLocalToUI(){
   document.getElementById('thisPosInfo').innerHTML = local.posName ? `<div class="big">${escapeHtml(local.posName)}</div>${escapeHtml(local.posType||'')} · ${escapeHtml(local.posId)}` : 'Not set up yet.';
 }
 document.getElementById('saveShopBtn').onclick = async ()=>{
-  local.shopName = document.getElementById('setShopName').value.trim() || 'Till';
+  local.shopName = document.getElementById('setShopName').value.trim() || 'Zeno Bear';
   local.currency = document.getElementById('setCurrency').value.trim() || '₱';
   await saveLocal(); applyLocalToUI(); renderAll();
   showToast('Saved.');
@@ -1540,7 +1540,7 @@ document.getElementById('saveSheetBtn').onclick = async ()=>{
 };
 document.getElementById('disconnectBtn').onclick = async ()=>{
   if(!confirm('Disconnect from Supabase? You can reconnect any time — nothing in the database is deleted.')) return;
-  local = {supabaseUrl:'', supabaseAnonKey:'', posId:'', posName:'', posType:'', staffName:'', shopName:'Till', currency:'₱'};
+  local = {supabaseUrl:'', supabaseAnonKey:'', posId:'', posName:'', posType:'', staffName:'', shopName:'Zeno Bear', currency:'₱'};
   await saveLocal();
   if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeChannel=null; }
   sb = null;
