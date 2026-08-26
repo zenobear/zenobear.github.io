@@ -478,6 +478,15 @@ grant execute on function
 
 /* ===================== State ===================== */
 let cache = { products:[], categories:[], series:[], sizes:[], colors:[], bazaars:[], posDevices:[], staff:[], transactions:[], movements:[], returns:[], exchanges:[] };
+/* ===================== Supabase project credentials ===================== */
+/* Fill these in ONCE and push to GitHub — every device then connects
+   automatically and never sees the "Connect your database" screen.
+   Get these from your Supabase project: Project Settings → API.
+   The anon key is meant to be public/embeddable — it's safe here as long
+   as the schema's Row Level Security stays in place (see schema.sql). */
+const SUPABASE_URL = '';
+const SUPABASE_ANON_KEY = '';
+
 let local = { supabaseUrl:'', supabaseAnonKey:'', posId:'', posName:'', posType:'', staffName:'', shopName:'Zeno Bear', currency:'₱' };
 let sb = null; // Supabase client instance
 let realtimeChannel = null;
@@ -724,6 +733,7 @@ function enterApp(role){
   showToast(role==='staff' ? ('Selling as '+(local.staffName||'—')) : 'Signed in as Owner / Admin');
 }
 document.getElementById('switchUserBtn').onclick = ()=>{ currentRole=null; document.body.classList.remove('staff-mode'); showRoleScreen(); };
+document.getElementById('switchUserBtnSell').onclick = ()=>{ currentRole=null; document.body.classList.remove('staff-mode'); showRoleScreen(); };
 
 /* ===================== POS identity ===================== */
 function openPosSetup(){
@@ -765,11 +775,10 @@ function switchView(view){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+view).classList.add('active');
   document.querySelectorAll('.nav-item, #mobilenav button').forEach(b=>b.classList.toggle('active', b.dataset.view===view));
-  const titles={dashboard:'Dashboard',sell:'Sell',products:'Products',inventory:'Inventory',history:'Sales History',reports:'Reports',settings:'Settings'};
+  const titles={dashboard:'Dashboard',sell:'Sell',products:'Products',inventory:'Inventory',history:'Sales History',settings:'Settings'};
   document.getElementById('viewTitle').textContent = titles[view];
   if(view==='sell') document.getElementById('scanInput').focus();
   if(view==='dashboard') renderDashboard();
-  if(view==='reports') renderReports();
   if(view==='settings') renderSettingsLists();
 }
 document.querySelectorAll('.nav-item, #mobilenav button').forEach(b=>b.addEventListener('click', ()=>switchView(b.dataset.view)));
@@ -1162,8 +1171,6 @@ function openProductModal(p){
   document.getElementById('fColor').value = p?(p.color||''):'';
   document.getElementById('fCost').value = p?p.cost:'';
   document.getElementById('fPrice').value = p?p.price:'';
-  document.getElementById('fStock').value = p?p.stock:'';
-  document.getElementById('fMinStock').value = p?p.minStock:3;
   document.getElementById('fDiscount').value = p?p.discount:0;
   document.getElementById('fSku').value = p?p.id:'';
   document.getElementById('fEditingSku').value = p?p.id:'';
@@ -1186,20 +1193,18 @@ document.getElementById('saveProdBtn').onclick = async ()=>{
   const color = document.getElementById('fColor').value.trim();
   const cost = parseFloat(document.getElementById('fCost').value)||0;
   const price = parseFloat(document.getElementById('fPrice').value);
-  const stock = parseInt(document.getElementById('fStock').value,10);
-  const minStock = parseInt(document.getElementById('fMinStock').value,10)||0;
   const discount = parseFloat(document.getElementById('fDiscount').value)||0;
   const id = document.getElementById('fSku').value.trim();
   const editing = document.getElementById('fEditingSku').value;
-  if(!name || !category || isNaN(price) || isNaN(stock)){ showToast('Fill in name, category, price and stock.'); return; }
+  if(!name || !category || isNaN(price)){ showToast('Fill in name, category, and price.'); return; }
   const btn = document.getElementById('saveProdBtn'); btn.disabled=true; btn.textContent='Saving…';
   try{
     await ensureRosterValue('size', size);
     await ensureRosterValue('color', color);
     if(!editing){
-      await apiPost('add_product', {p_id:id, p_name:name, p_category:category, p_series:series, p_size:size, p_color:color, p_cost:cost, p_price:price, p_stock:stock, p_min_stock:minStock, p_discount:discount});
+      await apiPost('add_product', {p_id:id, p_name:name, p_category:category, p_series:series, p_size:size, p_color:color, p_cost:cost, p_price:price, p_discount:discount});
     } else {
-      await apiPost('update_product', {p_id:editing, p_name:name, p_category:category, p_series:series, p_size:size, p_color:color, p_cost:cost, p_price:price, p_stock:stock, p_min_stock:minStock, p_discount:discount});
+      await apiPost('update_product', {p_id:editing, p_name:name, p_category:category, p_series:series, p_size:size, p_color:color, p_cost:cost, p_price:price, p_discount:discount});
     }
     document.getElementById('prodModalBg').classList.remove('show');
     showToast('Product saved.');
@@ -1306,22 +1311,32 @@ function renderInventory(){
   }).join('');
 }
 
+function productPickerOptions(){
+  return '<option value="">— Choose a product —</option>' + cache.products
+    .filter(p=>p.status==='Active')
+    .map(p=>{
+      const variant = [p.size, p.color].filter(Boolean).join(' · ');
+      return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${variant?' — '+escapeHtml(variant):''} (${escapeHtml(p.id)}) · ${p.stock} in stock</option>`;
+    }).join('');
+}
 document.getElementById('stockInBtn').onclick = ()=>{
   siProduct=null;
+  document.getElementById('siProductSelect').innerHTML = productPickerOptions();
   document.getElementById('siScan').value=''; document.getElementById('siQty').value=1; document.getElementById('siRef').value='';
   document.getElementById('siProductInfo').innerHTML='';
   document.getElementById('stockInModalBg').classList.add('show');
-  setTimeout(()=>document.getElementById('siScan').focus(),50);
 };
 document.getElementById('cancelSiBtn').onclick = ()=>document.getElementById('stockInModalBg').classList.remove('show');
+document.getElementById('siProductSelect').addEventListener('change', e=>{ if(e.target.value) lookupSiProduct(e.target.value); });
 document.getElementById('siScan').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); lookupSiProduct(e.target.value); } });
 function lookupSiProduct(code){
   const p = findProduct(code); siProduct = p;
   const el = document.getElementById('siProductInfo');
+  if(p){ document.getElementById('siProductSelect').value = p.id; }
   el.innerHTML = p ? `<div class="info-box"><div class="big">${escapeHtml(p.name)}</div>Current stock: ${p.stock} · ${fmt(p.price)}</div>` : `<div class="scan-msg err">No product found for "${escapeHtml(code)}".</div>`;
 }
 document.getElementById('confirmSiBtn').onclick = async ()=>{
-  if(!siProduct){ showToast('Scan or enter a valid product first.'); return; }
+  if(!siProduct){ showToast('Select or scan a product first.'); return; }
   const qty = parseInt(document.getElementById('siQty').value,10);
   if(!qty || qty<1){ showToast('Enter a quantity to add.'); return; }
   const ref = document.getElementById('siRef').value.trim() || ('SI-'+Date.now().toString().slice(-6));
@@ -1336,20 +1351,22 @@ document.getElementById('confirmSiBtn').onclick = async ()=>{
 };
 document.getElementById('adjustBtn').onclick = ()=>{
   adjProduct=null;
+  document.getElementById('adjProductSelect').innerHTML = productPickerOptions();
   document.getElementById('adjScan').value=''; document.getElementById('adjActual').value='';
   document.getElementById('adjProductInfo').innerHTML='';
   document.getElementById('adjModalBg').classList.add('show');
-  setTimeout(()=>document.getElementById('adjScan').focus(),50);
 };
 document.getElementById('cancelAdjBtn').onclick = ()=>document.getElementById('adjModalBg').classList.remove('show');
+document.getElementById('adjProductSelect').addEventListener('change', e=>{ if(e.target.value) lookupAdjProduct(e.target.value); });
 document.getElementById('adjScan').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); lookupAdjProduct(e.target.value); } });
 function lookupAdjProduct(code){
   const p = findProduct(code); adjProduct = p;
   const el = document.getElementById('adjProductInfo');
+  if(p){ document.getElementById('adjProductSelect').value = p.id; document.getElementById('adjActual').value = p.stock; }
   el.innerHTML = p ? `<div class="info-box"><div class="big">${escapeHtml(p.name)}</div>System stock: ${p.stock}</div>` : `<div class="scan-msg err">No product found for "${escapeHtml(code)}".</div>`;
 }
 document.getElementById('confirmAdjBtn').onclick = async ()=>{
-  if(!adjProduct){ showToast('Scan or enter a valid product first.'); return; }
+  if(!adjProduct){ showToast('Select or scan a product first.'); return; }
   const actual = parseInt(document.getElementById('adjActual').value,10);
   if(isNaN(actual)){ showToast('Enter the actual counted stock.'); return; }
   const reason = document.getElementById('adjReason').value;
@@ -1513,27 +1530,12 @@ document.getElementById('confirmExchangeBtn').onclick = async ()=>{
   finally{ btn.disabled=false; btn.textContent='Confirm exchange'; }
 };
 
-/* ===================== DASHBOARD ===================== */
+/* ===================== DASHBOARD (merged with Reports) ===================== */
 function renderDashboard(){
-  const t = todayTxns();
-  const todayTotal = t.reduce((a,x)=>a+x.total,0);
-  const items = t.reduce((a,x)=>a+x.items.reduce((s,i)=>s+i.qty,0),0);
-  const cash = t.filter(x=>x.payment==='Cash').reduce((a,x)=>a+x.total,0);
-  const card = t.filter(x=>x.payment==='Card').reduce((a,x)=>a+x.total,0);
-  document.getElementById('dToday').textContent = fmt(todayTotal);
-  document.getElementById('dTxns').textContent = t.length;
-  document.getElementById('dItems').textContent = items;
+  // inventory snapshot — always current, not period-scoped
   document.getElementById('dInv').textContent = cache.products.reduce((a,p)=>a+p.stock,0);
-  document.getElementById('dCash').textContent = fmt(cash);
-  document.getElementById('dCard').textContent = fmt(card);
   document.getElementById('dLow').textContent = cache.products.filter(p=>p.status==='Active' && stockStatus(p)==='low').length;
   document.getElementById('dOut').textContent = cache.products.filter(p=>p.status==='Active' && stockStatus(p)==='out').length;
-
-  const sold = {};
-  cache.transactions.forEach(tx=>tx.items.forEach(it=>{ sold[it.productId]=(sold[it.productId]||0)+it.qty; }));
-  const best = Object.entries(sold).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  document.getElementById('dashBest').innerHTML = best.length ? best.map(([id,qty])=>{ const p=cache.products.find(x=>x.id===id); return `<div class="mini-row"><span>${p?escapeHtml(p.name):id}</span><span class="mono">${qty} sold</span></div>`; }).join('') : '<div class="cart-empty">No sales yet.</div>';
-
   const lowList = cache.products.filter(p=>p.status==='Active' && stockStatus(p)!=='ok').sort((a,b)=>a.stock-b.stock);
   document.getElementById('dashLow').innerHTML = lowList.length ? lowList.slice(0,8).map(p=>`<div class="mini-row"><span>${escapeHtml(p.name)}</span><span class="mono" style="font-weight:${stockStatus(p)==='out'?'800':'600'};text-decoration:${stockStatus(p)==='out'?'underline':'none'};">${p.stock} left</span></div>`).join('') : '<div class="cart-empty">All stock levels are healthy.</div>';
 
@@ -1542,11 +1544,7 @@ function renderDashboard(){
   recentEl.innerHTML = recent.length ? recent.map(tx=>`<div class="mini-row" style="cursor:pointer;" data-txn="${tx.id}"><span class="mono">#${tx.id}</span><span>${new Date(tx.timestamp).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span><span class="pay-tag ${tx.payment.toLowerCase()}">${tx.payment}</span><span class="mono">${fmt(tx.total)}</span></div>`).join('') : '<div class="cart-empty">No transactions yet.</div>';
   recentEl.querySelectorAll('[data-txn]').forEach(row=>row.onclick=()=>openTxnDetail(row.dataset.txn));
 
-  const byPos = {};
-  t.forEach(tx=>{ const key=tx.posId||'—'; byPos[key]=byPos[key]||{count:0,total:0}; byPos[key].count++; byPos[key].total+=tx.total; });
-  const posEl = document.getElementById('dashPos');
-  const posEntries = Object.entries(byPos);
-  posEl.innerHTML = posEntries.length ? posEntries.map(([id,v])=>`<div class="mini-row"><span class="mono">${escapeHtml(id)}</span><span>${v.count} txns</span><span class="mono">${fmt(v.total)}</span></div>`).join('') : '<div class="cart-empty">No sales today yet.</div>';
+  renderPeriodReport();
 }
 function renderTopStats(){
   const t = todayTxns();
@@ -1554,15 +1552,15 @@ function renderTopStats(){
   document.getElementById('topTxns').textContent = t.length;
 }
 
-/* ===================== REPORTS ===================== */
+/* Period-scoped report section (Today / Week / Month / Custom) inside the merged Dashboard */
 document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click', ()=>{
   document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
   reportPeriod = b.dataset.period;
   document.getElementById('customRangeRow').style.display = reportPeriod==='custom' ? 'flex' : 'none';
-  if(reportPeriod!=='custom') renderReports();
+  if(reportPeriod!=='custom') renderPeriodReport();
 }));
-document.getElementById('repApply').addEventListener('click', renderReports);
+document.getElementById('repApply').addEventListener('click', renderPeriodReport);
 function reportRange(){
   const now = new Date();
   if(reportPeriod==='today'){ const s=new Date(); s.setHours(0,0,0,0); return [s, now]; }
@@ -1573,11 +1571,10 @@ function reportRange(){
   const e = t ? new Date(t+'T23:59:59') : now;
   return [s,e];
 }
-function renderReports(){
+function renderPeriodReport(){
   const [start,end] = reportRange();
   const list = cache.transactions.filter(t=>{ const d=new Date(t.timestamp); return d>=start && d<=end; });
   const sales = list.reduce((a,t)=>a+t.total,0);
-  const grossSales = list.reduce((a,t)=>a+t.subtotal,0);
   const totalDiscount = list.reduce((a,t)=>a+t.totalDiscount,0);
   const items = list.reduce((a,t)=>a+t.items.reduce((s,i)=>s+i.qty,0),0);
   const cash = list.filter(t=>t.payment==='Cash').reduce((a,t)=>a+t.total,0);
@@ -1610,7 +1607,7 @@ function renderReports(){
   const best = Object.entries(sold).sort((a,b)=>b[1]-a[1]).slice(0,8);
   document.getElementById('repBest').innerHTML = best.length ? best.map(([id,qty])=>{ const p=cache.products.find(x=>x.id===id); return `<div class="mini-row"><span>${p?escapeHtml(p.name):id}</span><span class="mono">${qty} sold</span></div>`; }).join('') : '<div class="cart-empty">No sales in this period.</div>';
   document.getElementById('repByCategory').innerHTML = Object.keys(byCat).length ? Object.entries(byCat).map(([c,v])=>`<div class="mini-row"><span>${escapeHtml(c)}</span><span>${v.qty} sold</span><span class="mono">${fmt(v.total)}</span></div>`).join('') : '<div class="cart-empty">No sales in this period.</div>';
-  document.getElementById('repBySeries').innerHTML = Object.keys(bySeries).length ? Object.entries(bySeries).map(([s,v])=>`<div class="mini-row"><span>${escapeHtml(s)}</span><span>${v.qty} sold</span><span class="mono">${fmt(v.total)}</span></div>`).join('') : '<div class="cart-empty">No series sales in this period.</div>';
+  document.getElementById('repBySeries').innerHTML = Object.keys(bySeries).length ? Object.entries(bySeries).map(([s,v])=>`<div class="mini-row"><span>${escapeHtml(s)}</span><span>${v.qty} sold</span><span class="mono">${fmt(v.total)}</span></div>`).join('') : '<div class="cart-empty">No design sales in this period.</div>';
   document.getElementById('repByPos').innerHTML = Object.keys(byPos).length ? Object.entries(byPos).map(([id,v])=>`<div class="mini-row"><span class="mono">${escapeHtml(id)}</span><span>${v.count} txns</span><span class="mono">${fmt(v.total)}</span></div>`).join('') : '<div class="cart-empty">No transactions in this period.</div>';
   document.getElementById('repByStaff').innerHTML = Object.keys(byStaff).length ? Object.entries(byStaff).map(([n,v])=>`<div class="mini-row"><span>${escapeHtml(n)}</span><span>${v.count} txns</span><span class="mono">${fmt(v.total)}</span></div>`).join('') : '<div class="cart-empty">No transactions in this period.</div>';
 }
@@ -1735,13 +1732,20 @@ document.getElementById('addPosBtn').onclick = async ()=>{
 
 /* ===================== Render all ===================== */
 function renderAll(){
-  renderTopStats(); renderDashboard(); renderProductsTable(); renderInventory(); renderHistory(); renderReports();
+  renderTopStats(); renderDashboard(); renderProductsTable(); renderInventory(); renderHistory();
   applyLocalToUI();
 }
 
 /* ===================== Boot ===================== */
 (async function boot(){
   await loadLocal();
+  // Use hardcoded project credentials if this device doesn't already have
+  // its own saved ones (lets the app connect with zero setup screens).
+  if(!local.supabaseUrl && !local.supabaseAnonKey && SUPABASE_URL && SUPABASE_ANON_KEY){
+    local.supabaseUrl = SUPABASE_URL;
+    local.supabaseAnonKey = SUPABASE_ANON_KEY;
+    await saveLocal();
+  }
   applyLocalToUI();
   if(!local.supabaseUrl || !local.supabaseAnonKey){
     document.getElementById('connectScreen').style.display='flex';
