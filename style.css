@@ -148,7 +148,7 @@ body {
 
 .product-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 1rem;
     overflow-y: auto;
     padding-right: 4px;
@@ -158,37 +158,104 @@ body {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 10px;
-    padding: 1.2rem;
+    padding: 1rem;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
-    cursor: pointer;
+    gap: 0.6rem;
     transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
 }
 
 .product-card:hover {
-    transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     border-color: var(--accent);
 }
 
 .product-card.out-of-stock {
     opacity: 0.5;
-    cursor: not-allowed;
     background: #f1f5f9;
+}
+
+.product-image-wrap {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #f1f5f9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.product-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.product-image-placeholder {
+    font-size: 2.5rem;
+    opacity: 0.4;
 }
 
 .product-card .p-name {
     font-weight: 700;
     font-size: 1rem;
-    margin-bottom: 4px;
     color: var(--text-main);
 }
 
 .product-card .p-meta {
     font-size: 0.8rem;
     color: var(--text-muted);
-    margin-bottom: 12px;
+    margin-top: -0.4rem;
+}
+
+.variant-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.variant-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.variant-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.variant-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.variant-chip {
+    padding: 4px 10px;
+    border: 1px solid var(--border-color);
+    background: white;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-main);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.variant-chip:hover {
+    border-color: var(--accent);
+}
+
+.variant-chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
 }
 
 .product-card .p-price-stock {
@@ -204,11 +271,33 @@ body {
 }
 
 .product-card .p-stock {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     font-weight: 600;
     padding: 2px 8px;
     border-radius: 10px;
     background: #e2e8f0;
+}
+
+.btn-add-variant {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: white;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-add-variant:hover {
+    background: var(--accent-hover);
+}
+
+.btn-add-variant:disabled {
+    background: #cbd5e1;
+    cursor: not-allowed;
 }
 
 /* Cart Panel */
@@ -873,6 +962,82 @@ tr:hover td {
 
 .form-control:focus {
     border-color: var(--accent);
+}
+
+/* Product image upload (Add/Edit Product modal) */
+.image-upload-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.image-upload-block > label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.image-upload-wrap {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.image-preview-box {
+    width: 84px;
+    height: 84px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    border: 1px dashed var(--border-color);
+    background: #f8fafc;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.image-preview {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.image-empty-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 0 6px;
+}
+
+.image-upload-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.image-upload-btn {
+    display: inline-block;
+    text-align: center;
+    cursor: pointer;
+}
+
+/* Product Catalog: table thumbnail */
+.product-thumb {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    object-fit: cover;
+    display: block;
+    border: 1px solid var(--border-color);
+}
+
+.product-thumb-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f1f5f9;
+    font-size: 1.3rem;
 }
 
 /* Product Catalog: inline product info cell */
