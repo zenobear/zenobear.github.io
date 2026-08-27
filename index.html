@@ -141,6 +141,9 @@
             <button class="admin-menu-item" data-tab="inventory" onclick="switchAdminTab('inventory')">
                 📋 Inventory Status
             </button>
+            <button class="admin-menu-item" data-tab="history" onclick="switchAdminTab('history')">
+                🕓 Stock History
+            </button>
             <button class="admin-menu-item" data-tab="sales" onclick="switchAdminTab('sales')">
                 🧾 Sales & Transactions
             </button>
@@ -276,6 +279,32 @@
                             </thead>
                             <tbody id="adminInventoryTable">
                                 <!-- Inventory items -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: Stock History -->
+            <div class="admin-tab-pane" id="tabStockHistory">
+                <div class="card-block">
+                    <div class="card-header-flex">
+                        <h3>Stock Adjustment History</h3>
+                    </div>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date & Time</th>
+                                    <th>Product</th>
+                                    <th>Type</th>
+                                    <th>Qty Changed</th>
+                                    <th>Stock (Before → After)</th>
+                                    <th>Adjusted By</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminStockHistoryTable">
+                                <!-- Stock adjustment history -->
                             </tbody>
                         </table>
                     </div>
@@ -462,14 +491,14 @@
     <!-- QUICK ADD STOCK MODAL -->
     <div class="modal-overlay" id="stockModal">
         <div class="modal-card">
-            <div class="modal-title">Add Stock</div>
+            <div class="modal-title" id="stockModalTitle">Add Stock</div>
             <div class="form-group">
                 <label id="stockModalProdName">Product</label>
                 <input type="number" id="stockAddQty" class="form-control" placeholder="Quantity to add" min="1">
             </div>
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="Admin.closeStockModal()">Cancel</button>
-                <button class="btn-action" style="width: auto;" onclick="Admin.submitAddStock()">Add Stock</button>
+                <button class="btn-action" id="stockSubmitBtn" style="width: auto;" onclick="Admin.submitStockAdjustment()">Add Stock</button>
             </div>
         </div>
     </div>
