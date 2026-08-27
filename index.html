@@ -239,6 +239,7 @@
                         <table>
                             <thead>
                                 <tr>
+                                    <th>Image</th>
                                     <th>Product Info</th>
                                     <th>Price</th>
                                     <th>Cost</th>
@@ -398,6 +399,21 @@
             <div class="modal-title" id="productModalTitle">Add New Product</div>
             <form id="productForm" onsubmit="Admin.saveProduct(event)">
                 <input type="hidden" id="pId">
+                <input type="hidden" id="pImageUrl">
+                <div class="image-upload-block">
+                    <label>Product Image</label>
+                    <div class="image-upload-wrap">
+                        <div class="image-preview-box">
+                            <img id="pImagePreview" class="image-preview" alt="Product preview" style="display:none;">
+                            <span id="pImageEmptyLabel" class="image-empty-label">🐻 No image</span>
+                        </div>
+                        <div class="image-upload-actions">
+                            <label class="btn-secondary image-upload-btn" for="pImageFile">Choose Image</label>
+                            <input type="file" id="pImageFile" accept="image/*" style="display:none;" onchange="Admin.handleProductImageSelect(event)">
+                            <button type="button" class="btn-danger-outline" onclick="Admin.removeProductImage()">Remove</button>
+                        </div>
+                    </div>
+                </div>
                 <div class="form-grid">
                     <div class="form-group full">
                         <label>Product Name</label>
