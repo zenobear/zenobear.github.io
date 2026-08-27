@@ -9,7 +9,30 @@
 const SUPABASE_URL = 'https://tksdtlbcyfdjgepocmli.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_di4exRpweo2ctbGHSjFBpw_dOLJ_l_c';
 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Support both UMD global shapes: window.supabase.createClient or window.supabase.supabase
+function createSupabaseClient() {
+    const lib = window.supabase;
+    if (!lib) {
+        console.error('Supabase library not loaded. Check the CDN script in index.html.');
+        return null;
+    }
+    const createClient = lib.createClient || (lib.supabase && lib.supabase.createClient);
+    if (!createClient) {
+        console.error('createClient not found on Supabase library.', lib);
+        return null;
+    }
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
+
+const supabaseClient = createSupabaseClient();
+
+function db() {
+    if (!supabaseClient) {
+        throw new Error('Supabase is not connected. Check internet and the CDN script.');
+    }
+    return supabaseClient;
+}
+
 
 /* ==========================================================================
    1. PRODUCT BUSINESS LOGIC MODULE
@@ -34,7 +57,7 @@ const ProductLogic = {
     },
 
     async getAll() {
-        const { data, error } = await supabaseClient
+        const { data, error } = await db()
             .from('products')
             .select('*')
             .order('name');
@@ -47,7 +70,7 @@ const ProductLogic = {
     },
 
     async getById(id) {
-        const { data, error } = await supabaseClient
+        const { data, error } = await db()
             .from('products')
             .select('*')
             .eq('id', id)
@@ -73,13 +96,13 @@ const ProductLogic = {
         };
 
         if (productData.id) {
-            const { error } = await supabaseClient
+            const { error } = await db()
                 .from('products')
                 .update(row)
                 .eq('id', productData.id);
             if (error) throw error;
         } else {
-            const { error } = await supabaseClient.from('products').insert(row);
+            const { error } = await db().from('products').insert(row);
             if (error) throw error;
         }
     },
@@ -87,7 +110,7 @@ const ProductLogic = {
     async addStock(id, qty) {
         const p = await ProductLogic.getById(id);
         if (!p) return;
-        const { error } = await supabaseClient
+        const { error } = await db()
             .from('products')
             .update({ stock: p.stock + parseInt(qty, 10) })
             .eq('id', id);
@@ -97,7 +120,7 @@ const ProductLogic = {
     async toggleStatus(id) {
         const p = await ProductLogic.getById(id);
         if (!p) return;
-        const { error } = await supabaseClient
+        const { error } = await db()
             .from('products')
             .update({ available: p.status !== 'Active' })
             .eq('id', id);
@@ -106,7 +129,7 @@ const ProductLogic = {
 
     async deductStockForSale(cart) {
         for (const item of cart) {
-            const { error } = await supabaseClient.rpc('deduct_stock', {
+            const { error } = await db().rpc('deduct_stock', {
                 p_product_id: item.id,
                 p_qty: item.qty
             });
@@ -129,7 +152,7 @@ const StaffLogic = {
     },
 
     async getAll() {
-        const { data, error } = await supabaseClient
+        const { data, error } = await db()
             .from('staff')
             .select('*')
             .order('name');
@@ -142,7 +165,7 @@ const StaffLogic = {
     },
 
     async getById(id) {
-        const { data, error } = await supabaseClient
+        const { data, error } = await db()
             .from('staff')
             .select('*')
             .eq('id', id)
@@ -152,7 +175,7 @@ const StaffLogic = {
     },
 
     async getActive() {
-        const { data, error } = await supabaseClient
+        const { data, error } = await db()
             .from('staff')
             .select('*')
             .eq('active', true)
@@ -167,7 +190,7 @@ const StaffLogic = {
     async add(name) {
         const trimmed = name.trim();
         if (!trimmed) return { ok: false, message: 'Name is required' };
-        const { error } = await supabaseClient
+        const { error } = await db()
             .from('staff')
             .insert({ name: trimmed, active: true });
         if (error) {
@@ -182,7 +205,7 @@ const StaffLogic = {
     async toggleActive(id) {
         const s = await StaffLogic.getById(id);
         if (!s) return;
-        const { error } = await supabaseClient
+        const { error } = await db()
             .from('staff')
             .update({ active: !s.active })
             .eq('id', id);
@@ -190,7 +213,7 @@ const StaffLogic = {
     },
 
     async remove(id) {
-        const { error } = await supabaseClient.from('staff').delete().eq('id', id);
+        const { error } = await db().from('staff').delete().eq('id', id);
         if (error) throw error;
     }
 };
@@ -200,7 +223,7 @@ const StaffLogic = {
    ========================================================================== */
 const SalesLogic = {
     async getAll() {
-        const { data, error } = await supabaseClient
+        const { data, error } = await db()
             .from('sales')
             .select(`
                 *,
@@ -245,13 +268,13 @@ const SalesLogic = {
         const MM = String(now.getMonth() + 1).padStart(2, '0');
         const DD = String(now.getDate()).padStart(2, '0');
 
-        const { count } = await supabaseClient
+        const { count } = await db()
             .from('sales')
             .select('*', { count: 'exact', head: true });
         const seq = String((count || 0) + 1).padStart(4, '0');
         const txnNumber = `TXN-${YYYY}${MM}${DD}-${seq}`;
 
-        const { data: sale, error: saleErr } = await supabaseClient
+        const { data: sale, error: saleErr } = await db()
             .from('sales')
             .insert({
                 txn_number: txnNumber,
@@ -277,7 +300,7 @@ const SalesLogic = {
             subtotal: i.qty * i.price
         }));
 
-        const { error: itemsErr } = await supabaseClient.from('sale_items').insert(items);
+        const { error: itemsErr } = await db().from('sale_items').insert(items);
         if (itemsErr) throw itemsErr;
 
         await ProductLogic.deductStockForSale(cart);
@@ -1210,4 +1233,3 @@ window.addEventListener('DOMContentLoaded', () => {
         showToast('Configure Supabase URL and key in app.js');
     }
     POS.init();
-});
