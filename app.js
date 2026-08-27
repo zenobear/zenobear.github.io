@@ -109,12 +109,10 @@ const ProductLogic = {
         }
     },
 
-    async addStock(id, qty) {
-        const p = await ProductLogic.getById(id);
-        if (!p) return;
+    async setStock(id, newStock) {
         const { error } = await db()
             .from('products')
-            .update({ stock: p.stock + parseInt(qty, 10) })
+            .update({ stock: newStock })
             .eq('id', id);
         if (error) throw error;
     },
@@ -164,6 +162,50 @@ const ProductLogic = {
             });
             if (error) throw error;
         }
+    }
+};
+
+/* ==========================================================================
+   1b. STOCK ADJUSTMENT HISTORY MODULE (Admin +Stock / -Stock log)
+   ========================================================================== */
+const StockAdjustmentLogic = {
+    mapRow(r) {
+        return {
+            id: r.id,
+            productId: r.product_id,
+            productName: r.product_name,
+            changeType: r.change_type,
+            qtyChanged: r.qty_changed,
+            previousStock: r.previous_stock,
+            newStock: r.new_stock,
+            reason: r.reason,
+            adjustedBy: r.adjusted_by,
+            createdAt: r.created_at
+        };
+    },
+
+    async getAll() {
+        const { data, error } = await db()
+            .from('stock_adjustments')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(300);
+        if (error) throw error;
+        return (data || []).map(StockAdjustmentLogic.mapRow);
+    },
+
+    async record(entry) {
+        const { error } = await db().from('stock_adjustments').insert({
+            product_id: entry.productId,
+            product_name: entry.productName,
+            change_type: entry.changeType,
+            qty_changed: entry.qtyChanged,
+            previous_stock: entry.previousStock,
+            new_stock: entry.newStock,
+            reason: entry.reason || null,
+            adjusted_by: entry.adjustedBy || null
+        });
+        if (error) throw error;
     }
 };
 
@@ -746,11 +788,13 @@ const POS = {
    ========================================================================== */
 const Admin = {
     activeStockProductId: null,
+    stockModalMode: 'add', // 'add' | 'remove'
 
     async refresh() {
         await Admin.renderDashboard();
         await Admin.renderProducts();
         await Admin.renderInventory();
+        await Admin.renderStockHistory();
         await Admin.renderSales();
         await Admin.renderStaff();
     },
@@ -1008,7 +1052,7 @@ const Admin = {
                 </td>
                 <td>
                     <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.8rem; margin-right:4px;" onclick="Admin.openAddStockModal('${p.id}')">+ Stock</button>
-                    <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="Admin.openEditProductModal('${p.id}')">Edit</button>
+                    <button class="btn-danger-outline" style="padding: 4px 8px; font-size: 0.8rem;" onclick="Admin.openRemoveStockModal('${p.id}')">− Stock</button>
                 </td>
             </tr>
             `;
@@ -1318,11 +1362,24 @@ const Admin = {
     },
 
     async openAddStockModal(id) {
+        Admin.stockModalMode = 'add';
+        await Admin.openStockModalCommon(id, 'Add Stock', 'Add stock for', 'Add Stock');
+    },
+
+    async openRemoveStockModal(id) {
+        Admin.stockModalMode = 'remove';
+        await Admin.openStockModalCommon(id, 'Remove Stock', 'Remove stock for', 'Remove Stock');
+    },
+
+    async openStockModalCommon(id, title, actionLabel, buttonLabel) {
         const p = await ProductLogic.getById(id);
         if (!p) return;
         Admin.activeStockProductId = id;
-        document.getElementById('stockModalProdName').innerText = `Add stock for: ${p.name} (Current Stock: ${p.stock})`;
+        document.getElementById('stockModalTitle').innerText = title;
+        document.getElementById('stockModalProdName').innerText = `${actionLabel}: ${p.name} (Current Stock: ${p.stock})`;
         document.getElementById('stockAddQty').value = '';
+        document.getElementById('stockAddQty').placeholder = Admin.stockModalMode === 'add' ? 'Quantity to add' : 'Quantity to remove';
+        document.getElementById('stockSubmitBtn').innerText = buttonLabel;
         document.getElementById('stockModal').classList.add('active');
     },
 
@@ -1330,21 +1387,77 @@ const Admin = {
         document.getElementById('stockModal').classList.remove('active');
     },
 
-    async submitAddStock() {
+    async submitStockAdjustment() {
         const qty = parseInt(document.getElementById('stockAddQty').value || 0, 10);
         if (qty <= 0) {
-            showToast('Please enter a valid stock quantity!');
+            showToast('Please enter a valid quantity!');
             return;
         }
+
+        const p = await ProductLogic.getById(Admin.activeStockProductId);
+        if (!p) return;
+
+        const isAdd = Admin.stockModalMode === 'add';
+        const previousStock = p.stock;
+        let newStock;
+
+        if (isAdd) {
+            newStock = previousStock + qty;
+        } else {
+            if (qty > previousStock) {
+                showToast(`Cannot remove ${qty} — only ${previousStock} in stock.`);
+                return;
+            }
+            newStock = previousStock - qty;
+        }
+
         try {
-            await ProductLogic.addStock(Admin.activeStockProductId, qty);
+            await ProductLogic.setStock(Admin.activeStockProductId, newStock);
+            await StockAdjustmentLogic.record({
+                productId: Admin.activeStockProductId,
+                productName: p.name,
+                changeType: isAdd ? 'ADD' : 'REMOVE',
+                qtyChanged: qty,
+                previousStock,
+                newStock,
+                adjustedBy: POS.currentCashier || 'Admin'
+            });
             Admin.closeStockModal();
             await Admin.refresh();
             await POS.renderProducts();
-            showToast('Stock added successfully!');
+            showToast(isAdd ? 'Stock added successfully!' : 'Stock removed successfully!');
         } catch (err) {
-            showToast('Error: ' + err.message);
+            console.error(err);
+            showToast('Error updating stock: ' + err.message);
         }
+    },
+
+    async renderStockHistory() {
+        const history = await StockAdjustmentLogic.getAll();
+        const tbody = document.getElementById('adminStockHistoryTable');
+        if (!tbody) return;
+
+        if (history.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No stock adjustments recorded yet</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = history.map(h => {
+            const dt = new Date(h.createdAt);
+            const dateLabel = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            const timeLabel = dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            const isAdd = h.changeType === 'ADD';
+            return `
+                <tr>
+                    <td>${dateLabel} ${timeLabel}</td>
+                    <td><strong>${h.productName}</strong></td>
+                    <td><span class="badge ${isAdd ? 'badge-success' : 'badge-danger'}">${isAdd ? '+ Added' : '− Removed'}</span></td>
+                    <td>${h.qtyChanged}</td>
+                    <td>${h.previousStock} → ${h.newStock}</td>
+                    <td>${h.adjustedBy || '—'}</td>
+                </tr>
+            `;
+        }).join('');
     }
 };
 
@@ -1384,6 +1497,7 @@ function switchAdminTab(tabName) {
         'dashboard': 'tabDashboard',
         'products': 'tabProducts',
         'inventory': 'tabInventory',
+        'history': 'tabStockHistory',
         'sales': 'tabSales',
         'staff': 'tabStaff'
     };
