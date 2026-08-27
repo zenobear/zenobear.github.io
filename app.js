@@ -558,25 +558,125 @@ const Admin = {
         await Admin.renderStaff();
     },
 
-    async renderDashboard() {
-        const sales = await SalesLogic.getAll();
-        const products = await ProductLogic.getAll();
+    // Local YYYY-MM-DD key used to group sales by calendar day (avoids UTC off-by-one issues)
+    dayKey(d) {
+        return d.toLocaleDateString('en-CA');
+    },
 
-        const todayStr = new Date().toLocaleDateString('en-US', {
-            month: 'short', day: 'numeric', year: 'numeric'
-        });
-        const todaySales = sales.filter(s => s.date === todayStr);
+    async renderDashboard() {
+        const [sales, products] = await Promise.all([SalesLogic.getAll(), ProductLogic.getAll()]);
+        const now = new Date();
+
+        const dateLabel = document.getElementById('dashDateLabel');
+        if (dateLabel) {
+            dateLabel.innerText = now.toLocaleDateString('en-US', {
+                weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
+            });
+        }
+
+        // ---- Today vs yesterday stats ----
+        const todayKey = Admin.dayKey(now);
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        const yesterdayKey = Admin.dayKey(yesterday);
+
+        const todaySales = sales.filter(s => Admin.dayKey(new Date(s.rawDate)) === todayKey);
+        const yesterdaySales = sales.filter(s => Admin.dayKey(new Date(s.rawDate)) === yesterdayKey);
 
         const totalRev = todaySales.reduce((sum, s) => sum + s.total, 0);
+        const yesterdayRev = yesterdaySales.reduce((sum, s) => sum + s.total, 0);
+        const avgSale = todaySales.length ? totalRev / todaySales.length : 0;
+
         document.getElementById('dashTodaySales').innerText = `₱${totalRev.toFixed(2)}`;
         document.getElementById('dashTxnCount').innerText = todaySales.length;
+        document.getElementById('dashAvgSale').innerText = `₱${avgSale.toFixed(2)}`;
         document.getElementById('dashProductCount').innerText = products.length;
+
+        const trendEl = document.getElementById('dashSalesTrend');
+        if (trendEl) {
+            if (yesterdayRev > 0) {
+                const pct = ((totalRev - yesterdayRev) / yesterdayRev) * 100;
+                const up = pct >= 0;
+                trendEl.innerHTML = `<span class="${up ? 'trend-up' : 'trend-down'}">${up ? '▲' : '▼'} ${Math.abs(pct).toFixed(0)}% vs yesterday</span>`;
+            } else if (totalRev > 0) {
+                trendEl.innerHTML = `<span class="trend-up">▲ New sales today</span>`;
+            } else {
+                trendEl.innerHTML = '';
+            }
+        }
+
+        // ---- Stock alerts ----
+        const lowStock = products.filter(p => p.status === 'Active' && p.stock > 0 && p.stock <= p.minStock);
+        const outStock = products.filter(p => p.status === 'Active' && p.stock <= 0);
+        document.getElementById('dashLowStockCount').innerText = lowStock.length;
+        document.getElementById('dashOutStockCount').innerText = outStock.length;
+
+        const alertListEl = document.getElementById('stockAlertList');
+        const alertItems = [
+            ...outStock.map(p => ({ ...p, level: 'out' })),
+            ...lowStock.map(p => ({ ...p, level: 'low' }))
+        ].sort((a, b) => a.stock - b.stock).slice(0, 6);
+
+        if (alertItems.length === 0) {
+            alertListEl.innerHTML = `<div class="empty-alert">✅ All stock levels are healthy</div>`;
+        } else {
+            alertListEl.innerHTML = alertItems.map(p => `
+                <div class="alert-row ${p.level}">
+                    <div class="alert-info">
+                        <strong>${p.name}</strong>
+                        <span>${p.stock} in stock · min ${p.minStock}</span>
+                    </div>
+                    <span class="alert-badge ${p.level}">${p.level === 'out' ? 'Out of Stock' : 'Low Stock'}</span>
+                </div>
+            `).join('');
+        }
+
+        // ---- 7-day sales trend chart ----
+        const days = [];
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(now.getDate() - i);
+            days.push(d);
+        }
+        const dayTotals = days.map(d => {
+            const key = Admin.dayKey(d);
+            const revenue = sales
+                .filter(s => Admin.dayKey(new Date(s.rawDate)) === key)
+                .reduce((sum, s) => sum + s.total, 0);
+            return { date: d, revenue };
+        });
+        const maxRev = Math.max(...dayTotals.map(d => d.revenue), 1);
+
+        const chartEl = document.getElementById('salesTrendChart');
+        chartEl.innerHTML = `<div class="bar-chart">${dayTotals.map(d => {
+            const heightPct = d.revenue > 0 ? Math.max((d.revenue / maxRev) * 100, 4) : 0;
+            const isToday = Admin.dayKey(d.date) === todayKey;
+            return `
+                <div class="bar-col">
+                    <span class="bar-value">${d.revenue > 0 ? '₱' + Admin.compactPeso(d.revenue) : ''}</span>
+                    <div class="bar-track">
+                        <div class="bar-fill${isToday ? ' today' : ''}" style="height:${heightPct}%"></div>
+                    </div>
+                    <span class="bar-label${isToday ? ' today' : ''}">${d.date.toLocaleDateString('en-US', { weekday: 'short' })}</span>
+                </div>
+            `;
+        }).join('')}</div>`;
+
+        // ---- Top selling products ----
+        const productById = {};
+        products.forEach(p => { productById[p.id] = p; });
 
         const salesMap = {};
         sales.forEach(s => {
             s.items.forEach(item => {
                 if (!salesMap[item.id]) {
-                    salesMap[item.id] = { name: item.name, qty: 0, revenue: 0 };
+                    const matched = productById[item.id];
+                    salesMap[item.id] = {
+                        name: item.name,
+                        sku: (matched && (matched.sku || matched.barcode)) || '—',
+                        qty: 0,
+                        revenue: 0
+                    };
                 }
                 salesMap[item.id].qty += item.qty;
                 salesMap[item.id].revenue += item.subtotal;
@@ -594,12 +694,17 @@ const Admin = {
             topTbody.innerHTML = topSellers.map(s => `
                 <tr>
                     <td><strong>${s.name}</strong></td>
-                    <td>-</td>
+                    <td>${s.sku}</td>
                     <td>${s.qty}</td>
                     <td>₱${s.revenue.toFixed(2)}</td>
                 </tr>
             `).join('');
         }
+    },
+
+    compactPeso(n) {
+        if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+        return n.toFixed(0);
     },
 
     async renderProducts() {
@@ -974,9 +1079,10 @@ function switchMainView(view) {
     }
 }
 
-function switchAdminTab(tabName, btnElement) {
+function switchAdminTab(tabName) {
     document.querySelectorAll('.admin-menu-item').forEach(btn => btn.classList.remove('active'));
-    btnElement.classList.add('active');
+    const activeBtn = document.querySelector(`.admin-menu-item[data-tab="${tabName}"]`);
+    if (activeBtn) activeBtn.classList.add('active');
 
     document.querySelectorAll('.admin-tab-pane').forEach(pane => pane.classList.remove('active'));
 
