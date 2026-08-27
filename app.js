@@ -127,6 +127,14 @@ const ProductLogic = {
         if (error) throw error;
     },
 
+    async deleteProduct(id) {
+        const { error } = await db()
+            .from('products')
+            .delete()
+            .eq('id', id);
+        if (error) throw error;
+    },
+
     async deductStockForSale(cart) {
         for (const item of cart) {
             const { error } = await db().rpc('deduct_stock', {
@@ -733,11 +741,57 @@ const Admin = {
                     </button>
                 </td>
                 <td>
-                    <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="Admin.openEditProductModal('${p.id}')">Edit</button>
+                    <div class="actions-cell">
+                        <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="Admin.viewProductDetails('${p.id}')">Details</button>
+                        <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="Admin.openEditProductModal('${p.id}')">Edit</button>
+                        <button class="btn-danger-outline" style="padding: 4px 8px; font-size: 0.8rem;" onclick="Admin.deleteProduct('${p.id}')">Delete</button>
+                    </div>
                 </td>
             </tr>
             `;
         }).join('');
+    },
+
+    async viewProductDetails(id) {
+        const p = await ProductLogic.getById(id);
+        if (!p) {
+            showToast('Product not found');
+            return;
+        }
+        document.getElementById('pdName').innerText = p.name || '—';
+        document.getElementById('pdBarcode').innerText = p.barcode || p.sku || '—';
+        document.getElementById('pdCategory').innerText = p.category || '—';
+        document.getElementById('pdDesign').innerText = p.design || '—';
+        document.getElementById('pdSize').innerText = p.size || '—';
+        document.getElementById('pdColor').innerText = p.color || '—';
+        document.getElementById('pdPrice').innerText = `₱${p.price.toFixed(2)}`;
+        document.getElementById('pdCost').innerText = `₱${p.cost.toFixed(2)}`;
+        document.getElementById('pdStock').innerText = p.stock;
+        document.getElementById('pdStatus').innerText = p.status === 'Active' ? 'Available' : 'Not Available';
+        document.getElementById('productDetailsModal').classList.add('active');
+    },
+
+    closeProductDetailsModal() {
+        document.getElementById('productDetailsModal').classList.remove('active');
+    },
+
+    async deleteProduct(id) {
+        const p = await ProductLogic.getById(id);
+        if (!p) {
+            showToast('Product not found');
+            return;
+        }
+        if (!confirm(`Delete "${p.name}"? This cannot be undone. Past sales records will keep the product name but no longer link to this product.`)) {
+            return;
+        }
+        try {
+            await ProductLogic.deleteProduct(id);
+            await Admin.refresh();
+            await POS.renderProducts();
+            showToast(`"${p.name}" deleted`);
+        } catch (err) {
+            showToast('Error deleting product: ' + err.message);
+        }
     },
 
     async toggleProductAvailability(id) {
