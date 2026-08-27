@@ -288,8 +288,8 @@ const SalesLogic = {
                 txn_number: txnNumber,
                 cashier_name: cashierName || 'Staff',
                 payment_method: paymentDetails.method,
-                subtotal: paymentDetails.total,
-                discount: 0,
+                subtotal: paymentDetails.subtotal,
+                discount: paymentDetails.discount,
                 total: paymentDetails.total,
                 amount_paid: paymentDetails.amountPaid,
                 change_amount: paymentDetails.change,
@@ -299,14 +299,24 @@ const SalesLogic = {
             .single();
         if (saleErr) throw saleErr;
 
-        const items = cart.map(i => ({
-            sale_id: sale.id,
-            product_id: i.id,
-            product_name: i.name,
-            qty: i.qty,
-            unit_price: i.price,
-            subtotal: i.qty * i.price
-        }));
+        const items = cart.map(i => {
+            const gross = i.qty * i.price;
+            let discAmt = 0;
+            if (i.discountType === 'percent') {
+                discAmt = gross * ((i.discountValue || 0) / 100);
+            } else if (i.discountType === 'amount') {
+                discAmt = i.discountValue || 0;
+            }
+            discAmt = Math.min(Math.max(discAmt, 0), gross);
+            return {
+                sale_id: sale.id,
+                product_id: i.id,
+                product_name: i.name,
+                qty: i.qty,
+                unit_price: i.price,
+                subtotal: gross - discAmt
+            };
+        });
 
         const { error: itemsErr } = await db().from('sale_items').insert(items);
         if (itemsErr) throw itemsErr;
@@ -389,11 +399,12 @@ const POS = {
 
         grid.innerHTML = filtered.map(p => {
             const isOut = p.stock <= 0;
+            const specLine = [p.design, p.size, p.color].filter(Boolean).join(' | ');
             return `
                 <div class="product-card ${isOut ? 'out-of-stock' : ''}" onclick="POS.addToCart('${p.id}')">
                     <div>
                         <div class="p-name">${p.name}</div>
-                        <div class="p-meta">Barcode: ${p.barcode || p.sku || ''}</div>
+                        <div class="p-meta">${specLine || '—'}</div>
                     </div>
                     <div class="p-price-stock">
                         <span class="p-price">₱${p.price.toFixed(2)}</span>
@@ -422,7 +433,7 @@ const POS = {
         if (cartItem) {
             cartItem.qty += 1;
         } else {
-            POS.cart.push({ ...product, qty: 1 });
+            POS.cart.push({ ...product, qty: 1, discountType: 'percent', discountValue: 0 });
         }
 
         POS.renderCart();
@@ -454,37 +465,112 @@ const POS = {
         POS.renderCart();
     },
 
-    renderCart() {
-        const list = document.getElementById('cartItemsList');
-        if (POS.cart.length === 0) {
-            list.innerHTML = `<div style="text-align: center; color: var(--text-muted); margin-auto: auto; padding: 2rem;">Cart is empty</div>`;
-            document.getElementById('posSubtotal').innerText = '0.00';
-            document.getElementById('posTotal').innerText = '0.00';
-            return;
+    // Computes this line's gross (qty x price), discount amount, and net subtotal
+    itemLineTotals(item) {
+        const gross = item.qty * item.price;
+        let discAmt = 0;
+        if (item.discountType === 'percent') {
+            discAmt = gross * ((item.discountValue || 0) / 100);
+        } else if (item.discountType === 'amount') {
+            discAmt = item.discountValue || 0;
         }
+        discAmt = Math.min(Math.max(discAmt, 0), gross); // never discount below ₱0 or more than the line itself
+        return { gross, discAmt, net: gross - discAmt };
+    },
 
+    cartTotals() {
         let subtotal = 0;
-        list.innerHTML = POS.cart.map(item => {
-            const itemSubtotal = item.qty * item.price;
-            subtotal += itemSubtotal;
-            return `
-                <div class="cart-item">
+        let discount = 0;
+        POS.cart.forEach(item => {
+            const { gross, discAmt } = POS.itemLineTotals(item);
+            subtotal += gross;
+            discount += discAmt;
+        });
+        return { subtotal, discount, total: subtotal - discount };
+    },
+
+    cartItemTemplate(item) {
+        const { gross, discAmt, net } = POS.itemLineTotals(item);
+        return `
+            <div class="cart-item" id="cartItem-${item.id}">
+                <div class="cart-item-top">
                     <div class="cart-item-info">
                         <span class="cart-item-title">${item.name}</span>
                         <span class="cart-item-price">₱${item.price.toFixed(2)} each</span>
                     </div>
                     <div class="cart-item-controls">
                         <button class="qty-btn" onclick="POS.updateQty('${item.id}', -1)">-</button>
-                        <span style="font-weight:700; width: 20px; text-align:center;">${item.qty}</span>
+                        <span class="qty-display">${item.qty}</span>
                         <button class="qty-btn" onclick="POS.updateQty('${item.id}', 1)">+</button>
                     </div>
-                    <div class="cart-item-subtotal">₱${itemSubtotal.toFixed(2)}</div>
                 </div>
-            `;
-        }).join('');
+                <div class="cart-item-discount-row">
+                    <select class="discount-type-select" onchange="POS.setItemDiscountType('${item.id}', this.value)">
+                        <option value="percent" ${item.discountType === 'percent' ? 'selected' : ''}>% off</option>
+                        <option value="amount" ${item.discountType === 'amount' ? 'selected' : ''}>₱ off</option>
+                    </select>
+                    <input type="number" min="0" step="0.01" class="discount-value-input"
+                        placeholder="0" value="${item.discountValue ? item.discountValue : ''}"
+                        oninput="POS.setItemDiscountValue('${item.id}', this.value)">
+                    <div class="cart-item-subtotal-wrap" id="cartItemSubtotalWrap-${item.id}">
+                        ${discAmt > 0 ? `<span class="cart-item-original">₱${gross.toFixed(2)}</span>` : ''}
+                        <span class="cart-item-subtotal">₱${net.toFixed(2)}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
 
-        document.getElementById('posSubtotal').innerText = subtotal.toFixed(2);
-        document.getElementById('posTotal').innerText = subtotal.toFixed(2);
+    setItemDiscountType(productId, type) {
+        const item = POS.cart.find(i => i.id === productId);
+        if (!item) return;
+        item.discountType = type;
+        POS.refreshItemSubtotal(productId);
+        POS.updateCartTotalsDisplay();
+    },
+
+    setItemDiscountValue(productId, value) {
+        const item = POS.cart.find(i => i.id === productId);
+        if (!item) return;
+        let val = parseFloat(value);
+        if (isNaN(val) || val < 0) val = 0;
+        if (item.discountType === 'percent' && val > 100) val = 100;
+        item.discountValue = val;
+        POS.refreshItemSubtotal(productId);
+        POS.updateCartTotalsDisplay();
+    },
+
+    // Updates only the small subtotal display for one line, so the discount input keeps focus while typing
+    refreshItemSubtotal(productId) {
+        const item = POS.cart.find(i => i.id === productId);
+        const wrap = document.getElementById(`cartItemSubtotalWrap-${productId}`);
+        if (!item || !wrap) return;
+        const { gross, discAmt, net } = POS.itemLineTotals(item);
+        wrap.innerHTML = `
+            ${discAmt > 0 ? `<span class="cart-item-original">₱${gross.toFixed(2)}</span>` : ''}
+            <span class="cart-item-subtotal">₱${net.toFixed(2)}</span>
+        `;
+    },
+
+    updateCartTotalsDisplay() {
+        const totals = POS.cartTotals();
+        document.getElementById('posSubtotal').innerText = totals.subtotal.toFixed(2);
+        document.getElementById('posDiscount').innerText = totals.discount.toFixed(2);
+        document.getElementById('posTotal').innerText = totals.total.toFixed(2);
+    },
+
+    renderCart() {
+        const list = document.getElementById('cartItemsList');
+        if (POS.cart.length === 0) {
+            list.innerHTML = `<div style="text-align: center; color: var(--text-muted); margin-auto: auto; padding: 2rem;">Cart is empty</div>`;
+            document.getElementById('posSubtotal').innerText = '0.00';
+            document.getElementById('posDiscount').innerText = '0.00';
+            document.getElementById('posTotal').innerText = '0.00';
+            return;
+        }
+
+        list.innerHTML = POS.cart.map(item => POS.cartItemTemplate(item)).join('');
+        POS.updateCartTotalsDisplay();
     },
 
     openPaymentModal() {
@@ -493,8 +579,8 @@ const POS = {
             return;
         }
 
-        const total = POS.cart.reduce((sum, item) => sum + (item.qty * item.price), 0);
-        document.getElementById('payModalTotal').innerText = total.toFixed(2);
+        const totals = POS.cartTotals();
+        document.getElementById('payModalTotal').innerText = totals.total.toFixed(2);
         document.getElementById('payAmountReceived').value = '';
         document.getElementById('payChange').innerText = '0.00';
         POS.setPaymentMethod('CASH');
@@ -520,7 +606,8 @@ const POS = {
     },
 
     async finalizeSale() {
-        const total = parseFloat(document.getElementById('payModalTotal').innerText);
+        const totals = POS.cartTotals();
+        const total = totals.total;
         let amountPaid = total;
         let change = 0;
 
@@ -536,6 +623,8 @@ const POS = {
         try {
             const txn = await SalesLogic.recordSale(POS.cart, {
                 method: POS.selectedPaymentMethod,
+                subtotal: totals.subtotal,
+                discount: totals.discount,
                 total: total,
                 amountPaid: amountPaid,
                 change: change
@@ -720,17 +809,25 @@ const Admin = {
         const tbody = document.getElementById('adminProductsTable');
 
         if (products.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No products created yet</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No products created yet</td></tr>`;
             return;
         }
 
         tbody.innerHTML = products.map(p => {
             const isAvailable = p.status === 'Active';
+            const specLine = [p.category, p.design, p.size, p.color].filter(Boolean).join(' | ');
             return `
             <tr>
-                <td><strong>${p.name}</strong></td>
-                <td>${p.barcode || p.sku || ''}</td>
-                <td>${p.category || ''}</td>
+                <td>
+                    <div class="product-info-cell">
+                        <div class="product-info-main">
+                            <strong>${p.name}</strong>
+                            <span class="sep">|</span>
+                            <span class="product-barcode">${p.barcode || p.sku || '—'}</span>
+                        </div>
+                        <div class="product-info-sub">${specLine || '—'}</div>
+                    </div>
+                </td>
                 <td>₱${p.price.toFixed(2)}</td>
                 <td>₱${p.cost.toFixed(2)}</td>
                 <td>
@@ -742,7 +839,6 @@ const Admin = {
                 </td>
                 <td>
                     <div class="actions-cell">
-                        <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="Admin.viewProductDetails('${p.id}')">Details</button>
                         <button class="btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="Admin.openEditProductModal('${p.id}')">Edit</button>
                         <button class="btn-danger-outline" style="padding: 4px 8px; font-size: 0.8rem;" onclick="Admin.deleteProduct('${p.id}')">Delete</button>
                     </div>
@@ -750,29 +846,6 @@ const Admin = {
             </tr>
             `;
         }).join('');
-    },
-
-    async viewProductDetails(id) {
-        const p = await ProductLogic.getById(id);
-        if (!p) {
-            showToast('Product not found');
-            return;
-        }
-        document.getElementById('pdName').innerText = p.name || '—';
-        document.getElementById('pdBarcode').innerText = p.barcode || p.sku || '—';
-        document.getElementById('pdCategory').innerText = p.category || '—';
-        document.getElementById('pdDesign').innerText = p.design || '—';
-        document.getElementById('pdSize').innerText = p.size || '—';
-        document.getElementById('pdColor').innerText = p.color || '—';
-        document.getElementById('pdPrice').innerText = `₱${p.price.toFixed(2)}`;
-        document.getElementById('pdCost').innerText = `₱${p.cost.toFixed(2)}`;
-        document.getElementById('pdStock').innerText = p.stock;
-        document.getElementById('pdStatus').innerText = p.status === 'Active' ? 'Available' : 'Not Available';
-        document.getElementById('productDetailsModal').classList.add('active');
-    },
-
-    closeProductDetailsModal() {
-        document.getElementById('productDetailsModal').classList.remove('active');
     },
 
     async deleteProduct(id) {
@@ -842,7 +915,7 @@ const Admin = {
         const tbody = document.getElementById('adminSalesTable');
 
         if (sales.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No transactions completed yet</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No transactions completed yet</td></tr>`;
             return;
         }
 
@@ -853,6 +926,7 @@ const Admin = {
                 <td>${s.cashier}</td>
                 <td><span class="badge badge-success">${s.paymentMethod}</span></td>
                 <td>${s.items.map(i => `${i.name} (x${i.qty})`).join(', ')}</td>
+                <td>${s.discount > 0 ? `<span class="badge badge-danger">-₱${s.discount.toFixed(2)}</span>` : '—'}</td>
                 <td><strong>₱${s.total.toFixed(2)}</strong></td>
             </tr>
         `).join('');
