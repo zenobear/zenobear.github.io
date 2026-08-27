@@ -396,11 +396,14 @@ const POS = {
     setCashier(name) {
         POS.currentCashier = name;
         const badge = document.getElementById('currentStaffBadge');
+        const switchBtn = document.getElementById('switchStaffBtn');
         if (name) {
             badge.textContent = 'Cashier: ' + name;
             badge.classList.add('visible');
+            switchBtn.classList.add('visible');
         } else {
             badge.classList.remove('visible');
+            switchBtn.classList.remove('visible');
         }
     },
 
@@ -1619,6 +1622,24 @@ const RoleAccess = {
         } else {
             switchMainView('pos');
         }
+    },
+
+    // Lets a logged-in staff member hand off the POS to a different registered staff,
+    // without needing to go through Admin.
+    switchStaff() {
+        if (POS.cart.length > 0) {
+            if (!confirm('You have items in the current cart. Switching staff will clear the cart. Continue?')) {
+                return;
+            }
+            POS.clearCart();
+        }
+
+        POS.setCashier(null);
+
+        const gate = document.getElementById('roleGate');
+        gate.classList.remove('hidden');
+        document.body.classList.add('role-selection-active');
+        RoleAccess.showStaffSelect();
     }
 };
 
