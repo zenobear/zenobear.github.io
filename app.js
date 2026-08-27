@@ -48,6 +48,7 @@ const ProductLogic = {
             design: p.design,
             size: p.size,
             color: p.color,
+            imageUrl: p.image_url,
             price: Number(p.price),
             cost: Number(p.cost),
             stock: p.stock,
@@ -88,6 +89,7 @@ const ProductLogic = {
             design: productData.design || null,
             size: productData.size || null,
             color: productData.color || null,
+            image_url: productData.imageUrl || null,
             price: productData.price,
             cost: productData.cost ?? 0,
             stock: productData.stock ?? 0,
@@ -133,6 +135,25 @@ const ProductLogic = {
             .delete()
             .eq('id', id);
         if (error) throw error;
+    },
+
+    // Uploads an image file to the 'product-images' storage bucket and returns its public URL
+    async uploadImage(file) {
+        if (!file) return null;
+        const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+        const randomId = (window.crypto && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const fileName = `${randomId}.${ext}`;
+
+        const { error: uploadErr } = await db()
+            .storage
+            .from('product-images')
+            .upload(fileName, file, { upsert: true, cacheControl: '3600' });
+        if (uploadErr) throw uploadErr;
+
+        const { data } = db().storage.from('product-images').getPublicUrl(fileName);
+        return data.publicUrl;
     },
 
     async deductStockForSale(cart) {
@@ -341,6 +362,7 @@ const POS = {
     cart: [],
     selectedPaymentMethod: 'CASH',
     currentCashier: null,
+    variantSelections: {}, // { groupKey: { size, color } } — remembers each design card's current picks
 
     init() {
         POS.renderProducts();
@@ -382,6 +404,20 @@ const POS = {
         }
     },
 
+    // Groups product variants together by Category + Design No, so each design shows as
+    // one card with its own set of Size / Color options instead of a card per SKU.
+    groupByDesign(products) {
+        const groups = {};
+        products.forEach(p => {
+            const key = `${p.category || ''}::${p.design || ''}`;
+            if (!groups[key]) {
+                groups[key] = { key, name: p.name, category: p.category, design: p.design, variants: [] };
+            }
+            groups[key].variants.push(p);
+        });
+        return Object.values(groups);
+    },
+
     async renderProducts(filter = '') {
         const grid = document.getElementById('posProductGrid');
         const products = (await ProductLogic.getAll()).filter(p => p.status === 'Active');
@@ -389,7 +425,8 @@ const POS = {
         const filtered = products.filter(p =>
             p.name.toLowerCase().includes(filter) ||
             (p.sku && p.sku.toLowerCase().includes(filter)) ||
-            (p.barcode && p.barcode.toLowerCase().includes(filter))
+            (p.barcode && p.barcode.toLowerCase().includes(filter)) ||
+            (p.design && p.design.toLowerCase().includes(filter))
         );
 
         if (filtered.length === 0) {
@@ -397,22 +434,81 @@ const POS = {
             return;
         }
 
-        grid.innerHTML = filtered.map(p => {
-            const isOut = p.stock <= 0;
-            const specLine = [p.design, p.size, p.color].filter(Boolean).join(' | ');
-            return `
-                <div class="product-card ${isOut ? 'out-of-stock' : ''}" onclick="POS.addToCart('${p.id}')">
-                    <div>
-                        <div class="p-name">${p.name}</div>
-                        <div class="p-meta">${specLine || '—'}</div>
-                    </div>
-                    <div class="p-price-stock">
-                        <span class="p-price">₱${p.price.toFixed(2)}</span>
-                        <span class="p-stock">${isOut ? 'Out of Stock' : p.stock + ' in stock'}</span>
-                    </div>
+        const groups = POS.groupByDesign(filtered);
+        grid.innerHTML = groups.map(group => POS.designCardTemplate(group)).join('');
+    },
+
+    designCardTemplate(group) {
+        const sizes = [...new Set(group.variants.map(v => v.size).filter(Boolean))];
+        const colors = [...new Set(group.variants.map(v => v.color).filter(Boolean))];
+
+        if (!POS.variantSelections[group.key]) {
+            POS.variantSelections[group.key] = { size: sizes[0] || null, color: colors[0] || null };
+        }
+        const sel = POS.variantSelections[group.key];
+        if (sel.size && !sizes.includes(sel.size)) sel.size = sizes[0] || null;
+        if (sel.color && !colors.includes(sel.color)) sel.color = colors[0] || null;
+
+        const matched = group.variants.find(v => v.size === sel.size && v.color === sel.color);
+
+        // Image follows the selected color: prefer the exact size+color match's image,
+        // fall back to any variant sharing that color, then any image in the group.
+        let imageUrl = matched && matched.imageUrl;
+        if (!imageUrl) {
+            const sameColor = group.variants.find(v => v.color === sel.color && v.imageUrl);
+            imageUrl = sameColor ? sameColor.imageUrl : null;
+        }
+        if (!imageUrl) {
+            const anyImage = group.variants.find(v => v.imageUrl);
+            imageUrl = anyImage ? anyImage.imageUrl : null;
+        }
+
+        const isOut = !matched || matched.stock <= 0;
+        const priceLabel = matched ? `₱${matched.price.toFixed(2)}` : '—';
+        const stockLabel = !matched ? 'Not available in this combo' : (isOut ? 'Out of Stock' : `${matched.stock} in stock`);
+
+        const esc = (s) => String(s).replace(/'/g, "\\'");
+
+        return `
+            <div class="product-card design-card">
+                <div class="product-image-wrap">
+                    ${imageUrl
+                        ? `<img src="${imageUrl}" class="product-image" alt="${group.name}">`
+                        : `<div class="product-image-placeholder">🐻</div>`}
                 </div>
-            `;
-        }).join('');
+                <div class="p-name">${group.name}</div>
+                <div class="p-meta">Design ${group.design || '—'}</div>
+                ${(sizes.length || colors.length) ? `
+                <div class="variant-row">
+                    ${sizes.length ? `
+                    <div class="variant-group">
+                        <span class="variant-label">Size</span>
+                        <div class="variant-chips">
+                            ${sizes.map(size => `<button type="button" class="variant-chip ${size === sel.size ? 'active' : ''}" onclick="event.stopPropagation(); POS.selectVariant('${group.key}', 'size', '${esc(size)}')">${size}</button>`).join('')}
+                        </div>
+                    </div>` : ''}
+                    ${colors.length ? `
+                    <div class="variant-group">
+                        <span class="variant-label">Color</span>
+                        <div class="variant-chips">
+                            ${colors.map(color => `<button type="button" class="variant-chip ${color === sel.color ? 'active' : ''}" onclick="event.stopPropagation(); POS.selectVariant('${group.key}', 'color', '${esc(color)}')">${color}</button>`).join('')}
+                        </div>
+                    </div>` : ''}
+                </div>` : ''}
+                <div class="p-price-stock">
+                    <span class="p-price">${priceLabel}</span>
+                    <span class="p-stock">${stockLabel}</span>
+                </div>
+                <button type="button" class="btn-add-variant" ${(!matched || isOut) ? 'disabled' : ''} onclick="event.stopPropagation(); POS.addToCart('${matched ? matched.id : ''}')">+ Add to Cart</button>
+            </div>
+        `;
+    },
+
+    selectVariant(groupKey, field, value) {
+        if (!POS.variantSelections[groupKey]) POS.variantSelections[groupKey] = {};
+        POS.variantSelections[groupKey][field] = value;
+        const filter = document.getElementById('posSearch').value.trim().toLowerCase();
+        POS.renderProducts(filter);
     },
 
     async addToCart(productId) {
@@ -491,12 +587,13 @@ const POS = {
 
     cartItemTemplate(item) {
         const { gross, discAmt, net } = POS.itemLineTotals(item);
+        const variantLabel = [item.size, item.color].filter(Boolean).join(', ');
         return `
             <div class="cart-item" id="cartItem-${item.id}">
                 <div class="cart-item-top">
                     <div class="cart-item-info">
                         <span class="cart-item-title">${item.name}</span>
-                        <span class="cart-item-price">₱${item.price.toFixed(2)} each</span>
+                        <span class="cart-item-price">₱${item.price.toFixed(2)} each${variantLabel ? ' · ' + variantLabel : ''}</span>
                     </div>
                     <div class="cart-item-controls">
                         <button class="qty-btn" onclick="POS.updateQty('${item.id}', -1)">-</button>
@@ -809,7 +906,7 @@ const Admin = {
         const tbody = document.getElementById('adminProductsTable');
 
         if (products.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No products created yet</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No products created yet</td></tr>`;
             return;
         }
 
@@ -818,6 +915,11 @@ const Admin = {
             const specLine = [p.category, p.design, p.size, p.color].filter(Boolean).join(' | ');
             return `
             <tr>
+                <td>
+                    ${p.imageUrl
+                        ? `<img src="${p.imageUrl}" class="product-thumb" alt="${p.name}">`
+                        : `<div class="product-thumb product-thumb-empty">🐻</div>`}
+                </td>
                 <td>
                     <div class="product-info-cell">
                         <div class="product-info-main">
@@ -1019,6 +1121,7 @@ const Admin = {
         document.getElementById('pSku').value = '';
         document.getElementById('pBarcode').value = '';
         document.getElementById('pCodeDescription').textContent = 'Enter Category, Design, Size and Color to generate the code';
+        Admin.resetProductImageField();
         document.getElementById('productModal').classList.add('active');
     },
 
@@ -1041,7 +1144,66 @@ const Admin = {
         document.getElementById('pPrice').value = p.price;
         document.getElementById('pCost').value = p.cost;
 
+        document.getElementById('pImageUrl').value = p.imageUrl || '';
+        document.getElementById('pImageFile').value = '';
+        const preview = document.getElementById('pImagePreview');
+        if (p.imageUrl) {
+            preview.src = p.imageUrl;
+            preview.style.display = 'block';
+            document.getElementById('pImageEmptyLabel').style.display = 'none';
+        } else {
+            preview.src = '';
+            preview.style.display = 'none';
+            document.getElementById('pImageEmptyLabel').style.display = 'block';
+        }
+
         document.getElementById('productModal').classList.add('active');
+    },
+
+    resetProductImageField() {
+        document.getElementById('pImageUrl').value = '';
+        document.getElementById('pImageFile').value = '';
+        const preview = document.getElementById('pImagePreview');
+        preview.src = '';
+        preview.style.display = 'none';
+        document.getElementById('pImageEmptyLabel').style.display = 'block';
+    },
+
+    async handleProductImageSelect(event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+            showToast('Please select an image file');
+            event.target.value = '';
+            return;
+        }
+
+        const preview = document.getElementById('pImagePreview');
+        const emptyLabel = document.getElementById('pImageEmptyLabel');
+
+        // Instant local preview while the real upload happens in the background
+        const reader = new FileReader();
+        reader.onload = () => {
+            preview.src = reader.result;
+            preview.style.display = 'block';
+            emptyLabel.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+
+        try {
+            showToast('Uploading image…');
+            const url = await ProductLogic.uploadImage(file);
+            document.getElementById('pImageUrl').value = url;
+            showToast('Image uploaded');
+        } catch (err) {
+            console.error(err);
+            showToast('Image upload failed: ' + err.message);
+        }
+    },
+
+    removeProductImage() {
+        Admin.resetProductImageField();
     },
 
     closeProductModal() {
@@ -1132,6 +1294,7 @@ const Admin = {
             design: document.getElementById('pDesign').value,
             size: document.getElementById('pSize').value,
             color: document.getElementById('pColor').value,
+            imageUrl: document.getElementById('pImageUrl').value || null,
             price: parseFloat(document.getElementById('pPrice').value),
             cost: parseFloat(document.getElementById('pCost').value || 0),
             stock: existingProduct?.stock ?? 0,
