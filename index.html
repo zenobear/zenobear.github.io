@@ -131,19 +131,19 @@
     <!-- WEBSITE 2: OWNER / ADMIN -->
     <main class="view-container" id="adminView">
         <aside class="admin-sidebar">
-            <button class="admin-menu-item active" onclick="switchAdminTab('dashboard', this)">
+            <button class="admin-menu-item active" data-tab="dashboard" onclick="switchAdminTab('dashboard')">
                 📊 Dashboard
             </button>
-            <button class="admin-menu-item" onclick="switchAdminTab('products', this)">
+            <button class="admin-menu-item" data-tab="products" onclick="switchAdminTab('products')">
                 📦 Product List
             </button>
-            <button class="admin-menu-item" onclick="switchAdminTab('inventory', this)">
+            <button class="admin-menu-item" data-tab="inventory" onclick="switchAdminTab('inventory')">
                 📋 Inventory Status
             </button>
-            <button class="admin-menu-item" onclick="switchAdminTab('sales', this)">
+            <button class="admin-menu-item" data-tab="sales" onclick="switchAdminTab('sales')">
                 🧾 Sales & Transactions
             </button>
-            <button class="admin-menu-item" onclick="switchAdminTab('staff', this)">
+            <button class="admin-menu-item" data-tab="staff" onclick="switchAdminTab('staff')">
                 👥 Staff Management
             </button>
         </aside>
@@ -151,18 +151,58 @@
         <section class="admin-content">
             <!-- TAB: Dashboard -->
             <div class="admin-tab-pane active" id="tabDashboard">
+                <div class="dash-header">
+                    <div>
+                        <h2 class="dash-title">Dashboard</h2>
+                        <p class="dash-subtitle" id="dashDateLabel"></p>
+                    </div>
+                    <button class="btn-secondary" style="width:auto; padding: 8px 16px;" onclick="Admin.refresh()">↻ Refresh</button>
+                </div>
+
                 <div class="stats-grid">
                     <div class="stat-card">
                         <span class="label">Today's Sales</span>
                         <span class="value" id="dashTodaySales">₱0.00</span>
+                        <span class="trend" id="dashSalesTrend"></span>
                     </div>
                     <div class="stat-card">
-                        <span class="label">Transactions</span>
+                        <span class="label">Transactions Today</span>
                         <span class="value" id="dashTxnCount">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="label">Average Sale</span>
+                        <span class="value" id="dashAvgSale">₱0.00</span>
                     </div>
                     <div class="stat-card">
                         <span class="label">Total Products</span>
                         <span class="value" id="dashProductCount">0</span>
+                    </div>
+                    <div class="stat-card stat-warn">
+                        <span class="label">Low Stock</span>
+                        <span class="value" id="dashLowStockCount">0</span>
+                    </div>
+                    <div class="stat-card stat-danger">
+                        <span class="label">Out of Stock</span>
+                        <span class="value" id="dashOutStockCount">0</span>
+                    </div>
+                </div>
+
+                <div class="dash-grid-2col">
+                    <div class="card-block">
+                        <div class="card-header-flex">
+                            <h3>Sales — Last 7 Days</h3>
+                        </div>
+                        <div id="salesTrendChart" class="chart-wrap"></div>
+                    </div>
+
+                    <div class="card-block">
+                        <div class="card-header-flex">
+                            <h3>⚠️ Stock Alerts</h3>
+                            <button class="btn-secondary" style="width:auto; padding: 6px 12px; font-size: 0.8rem;" onclick="switchAdminTab('inventory')">View Inventory →</button>
+                        </div>
+                        <div id="stockAlertList" class="alert-list">
+                            <!-- Low / out-of-stock items -->
+                        </div>
                     </div>
                 </div>
 
