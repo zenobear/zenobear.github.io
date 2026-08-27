@@ -816,6 +816,62 @@ tr:hover td {
     border-color: var(--accent);
 }
 
+/* Product Details modal */
+.details-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.details-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.details-row.four {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 480px) {
+    .details-row.four {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.details-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 10px 12px;
+    background: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    min-width: 0;
+}
+
+.details-field label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.details-field span {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-main);
+    overflow-wrap: anywhere;
+}
+
+/* Product table actions */
+.actions-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
 .modal-actions {
     display: flex;
     justify-content: flex-end;
