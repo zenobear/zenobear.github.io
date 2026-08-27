@@ -1233,3 +1233,4 @@ window.addEventListener('DOMContentLoaded', () => {
         showToast('Configure Supabase URL and key in app.js');
     }
     POS.init();
+});
