@@ -333,7 +333,11 @@ const SalesLogic = {
         }));
     },
 
-    async recordSale(cart, paymentDetails, cashierName) {
+    // Best-effort preview of what the next transaction ref will look like — shown live in
+    // the cart while building a sale. The real number used for the actual sale is generated
+    // fresh again at checkout time, so this preview can occasionally differ if another
+    // register completes a sale in between (rare on a single-terminal setup).
+    async generateTxnNumber() {
         const now = new Date();
         const YYYY = now.getFullYear();
         const MM = String(now.getMonth() + 1).padStart(2, '0');
@@ -343,7 +347,12 @@ const SalesLogic = {
             .from('sales')
             .select('*', { count: 'exact', head: true });
         const seq = String((count || 0) + 1).padStart(4, '0');
-        const txnNumber = `TXN-${YYYY}${MM}${DD}-${seq}`;
+        return `TXN-${YYYY}${MM}${DD}-${seq}`;
+    },
+
+    async recordSale(cart, paymentDetails, cashierName) {
+        const now = new Date();
+        const txnNumber = await SalesLogic.generateTxnNumber();
 
         const { data: sale, error: saleErr } = await db()
             .from('sales')
@@ -405,6 +414,7 @@ const POS = {
     selectedPaymentMethod: 'CASH',
     currentCashier: null,
     variantSelections: {}, // { groupKey: { size, color } } — remembers each design card's current picks
+    pendingTxnRef: null, // best-effort preview of the next transaction ref, shown in the cart
 
     init() {
         POS.renderProducts();
@@ -571,10 +581,16 @@ const POS = {
             return;
         }
 
+        const wasEmpty = POS.cart.length === 0;
+
         if (cartItem) {
             cartItem.qty += 1;
         } else {
             POS.cart.push({ ...product, qty: 1, discountType: 'percent', discountValue: 0 });
+        }
+
+        if (wasEmpty) {
+            POS.refreshTxnRefPreview();
         }
 
         POS.renderCart();
@@ -603,7 +619,25 @@ const POS = {
 
     clearCart() {
         POS.cart = [];
+        POS.pendingTxnRef = null;
+        POS.updateTxnRefDisplay();
         POS.renderCart();
+    },
+
+    async refreshTxnRefPreview() {
+        try {
+            POS.pendingTxnRef = await SalesLogic.generateTxnNumber();
+        } catch (err) {
+            console.error(err);
+            POS.pendingTxnRef = null;
+        }
+        POS.updateTxnRefDisplay();
+    },
+
+    updateTxnRefDisplay() {
+        const el = document.getElementById('cartTxnRef');
+        if (!el) return;
+        el.textContent = POS.pendingTxnRef ? `Ref: ${POS.pendingTxnRef}` : '';
     },
 
     // Computes this line's gross (qty x price), discount amount, and net subtotal
@@ -708,11 +742,13 @@ const POS = {
             document.getElementById('posSubtotal').innerText = '0.00';
             document.getElementById('posDiscount').innerText = '0.00';
             document.getElementById('posTotal').innerText = '0.00';
+            POS.updateTxnRefDisplay();
             return;
         }
 
         list.innerHTML = POS.cart.map(item => POS.cartItemTemplate(item)).join('');
         POS.updateCartTotalsDisplay();
+        POS.updateTxnRefDisplay();
     },
 
     openPaymentModal() {
@@ -1475,6 +1511,7 @@ function switchMainView(view) {
 
     document.getElementById('btnPosNav').classList.toggle('active', view === 'pos');
     document.getElementById('btnAdminNav').classList.toggle('active', view === 'admin');
+    document.getElementById('btnAdminLogout').classList.toggle('visible', view === 'admin');
 
     document.getElementById('posView').classList.toggle('active', view === 'pos');
     document.getElementById('adminView').classList.toggle('active', view === 'admin');
@@ -1754,6 +1791,13 @@ const RoleAccess = {
         gate.classList.remove('hidden');
         document.body.classList.add('role-selection-active');
         RoleAccess.showStaffSelect();
+    },
+
+    // Ends the Admin session (requires the password again next time) and returns to POS.
+    logoutAdmin() {
+        RoleAccess.adminSession = false;
+        switchMainView('pos');
+        showToast('Logged out of Admin');
     }
 };
 
