@@ -1793,11 +1793,23 @@ const RoleAccess = {
         RoleAccess.showStaffSelect();
     },
 
-    // Ends the Admin session (requires the password again next time) and returns to POS.
+    // Ends the Admin session and returns all the way to the homepage (role selection
+    // screen), the same screen shown when the site is first opened.
     logoutAdmin() {
+        if (POS.cart.length > 0) {
+            if (!confirm('You have items in the current cart. Logging out will clear the cart. Continue?')) {
+                return;
+            }
+            POS.clearCart();
+        }
+
         RoleAccess.adminSession = false;
-        switchMainView('pos');
-        showToast('Logged out of Admin');
+        POS.setCashier(null);
+
+        const gate = document.getElementById('roleGate');
+        gate.classList.remove('hidden');
+        document.body.classList.add('role-selection-active');
+        RoleAccess.backToRoles();
     }
 };
 
