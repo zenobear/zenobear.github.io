@@ -28,6 +28,31 @@ body {
     min-height: 100vh;
 }
 
+/* On larger screens, lock the page to exactly one screen's height so the
+   POS/Admin panels are forced to fit within it and scroll internally,
+   instead of the whole page stretching to fit tall content (which was
+   pushing the cart down below the visible screen). Phones keep the
+   natural, scrolling page handled in the mobile section below. */
+@media (min-width: 769px) {
+    body {
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    /* Admin used to rely on the whole page scrolling to reach long tables;
+       now that the page itself is locked, give its content area its own
+       internal scrollbar so nothing becomes unreachable. */
+    #adminView {
+        overflow: hidden;
+    }
+
+    .admin-content {
+        min-height: 0;
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+}
+
 /* Global Header Navigation */
 .system-header {
     background-color: var(--primary);
@@ -127,6 +152,7 @@ body {
 .view-container {
     display: none;
     flex: 1;
+    min-height: 0;
     padding: 1.5rem;
 }
 
