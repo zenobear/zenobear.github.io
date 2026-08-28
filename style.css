@@ -152,6 +152,20 @@ body {
     box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
+.logout-btn {
+    display: none;
+    color: var(--danger);
+}
+
+.logout-btn.visible {
+    display: inline-block;
+}
+
+.logout-btn:hover {
+    background: #fee2e2;
+    color: var(--danger);
+}
+
 /* View Containers */
 .view-container {
     display: none;
@@ -377,6 +391,19 @@ body {
     justify-content: space-between;
     align-items: center;
     background: #f6f7f9;
+}
+
+.cart-header-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cart-txn-ref {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--accent);
+    min-height: 1.1em;
 }
 
 .cart-header h2 {
