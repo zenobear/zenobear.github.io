@@ -138,7 +138,6 @@ body {
 #posView {
     gap: 1.5rem;
     height: calc(100vh - 61px);
-    align-items: flex-start;
     overflow: hidden;
 }
 
@@ -330,8 +329,7 @@ body {
 /* Cart Panel */
 .pos-cart {
     flex: 1;
-    align-self: flex-start;
-    max-height: 100%;
+    align-self: stretch;
     min-height: 0;
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -1455,10 +1453,6 @@ tr:hover td {
         overflow-y: visible;
         grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
         gap: 0.75rem;
-    }
-
-    .pos-cart {
-        max-height: none;
     }
 
     .cart-items-list {
