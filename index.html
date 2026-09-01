@@ -151,6 +151,9 @@
             <button class="admin-menu-item" data-tab="history" onclick="switchAdminTab('history')">
                 🕓 Stock History
             </button>
+            <button class="admin-menu-item" data-tab="discounts" onclick="switchAdminTab('discounts')">
+                🏷️ Discounts
+            </button>
             <button class="admin-menu-item" data-tab="sales" onclick="switchAdminTab('sales')">
                 🧾 Sales & Transactions
             </button>
@@ -312,6 +315,37 @@
                             </thead>
                             <tbody id="adminStockHistoryTable">
                                 <!-- Stock adjustment history -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: Discounts -->
+            <div class="admin-tab-pane" id="tabDiscounts">
+                <div class="dash-header">
+                    <div>
+                        <h2 class="dash-title">Discounts & Promotions</h2>
+                        <p class="dash-subtitle">Schedule discounts on all products, specific categories, or specific items.</p>
+                    </div>
+                    <button class="btn-action" style="width: auto; padding: 10px 18px;" onclick="Admin.openAddDiscountModal()">+ New Discount</button>
+                </div>
+
+                <div class="card-block">
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Discount</th>
+                                    <th>Applies To</th>
+                                    <th>Schedule</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminDiscountsTable">
+                                <!-- Discounts -->
                             </tbody>
                         </table>
                     </div>
@@ -507,6 +541,83 @@
                 <button class="btn-secondary" onclick="Admin.closeStockModal()">Cancel</button>
                 <button class="btn-action" id="stockSubmitBtn" style="width: auto;" onclick="Admin.submitStockAdjustment()">Add Stock</button>
             </div>
+        </div>
+    </div>
+
+    <!-- ADD/EDIT DISCOUNT MODAL -->
+    <div class="modal-overlay" id="discountModal">
+        <div class="modal-card" style="max-width: 580px;">
+            <div class="modal-title" id="discountModalTitle">New Discount</div>
+            <form id="discountForm" onsubmit="event.preventDefault(); Admin.saveDiscount();">
+                <input type="hidden" id="dId">
+
+                <div class="form-group full">
+                    <label>Discount Name</label>
+                    <input type="text" id="dName" class="form-control" placeholder="e.g. September Sale" required>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Discount Type</label>
+                        <select id="dType" class="form-control">
+                            <option value="PERCENT">Percentage (%)</option>
+                            <option value="FIXED">Fixed Amount (₱)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Discount Value</label>
+                        <input type="number" id="dValue" class="form-control" min="0.01" step="0.01" placeholder="e.g. 20" required>
+                    </div>
+                </div>
+
+                <div class="form-group full">
+                    <label>Applies To</label>
+                    <select id="dTargetType" class="form-control" onchange="Admin.onDiscountTargetChange()">
+                        <option value="ALL">All Products</option>
+                        <option value="CATEGORY">Specific Categories</option>
+                        <option value="PRODUCT">Specific Products</option>
+                    </select>
+                </div>
+
+                <div class="form-group full" id="dCategoryPickerWrap" style="display:none;">
+                    <label>Select Categories</label>
+                    <div class="checkbox-list" id="dCategoryPicker"><!-- categories --></div>
+                </div>
+
+                <div class="form-group full" id="dProductPickerWrap" style="display:none;">
+                    <label>Select Products</label>
+                    <input type="text" id="dProductSearch" class="form-control" placeholder="Search products..." oninput="Admin.filterDiscountProductPicker()" style="margin-bottom:8px;">
+                    <div class="checkbox-list" id="dProductPicker"><!-- products --></div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Start Date</label>
+                        <input type="date" id="dStartDate" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Start Time</label>
+                        <input type="time" id="dStartTime" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>End Date</label>
+                        <input type="date" id="dEndDate" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>End Time</label>
+                        <input type="time" id="dEndTime" class="form-control" required>
+                    </div>
+                </div>
+
+                <div class="form-group full checkbox-row">
+                    <label class="checkbox-item"><input type="checkbox" id="dActive" checked> <span>Enabled</span></label>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="Admin.closeDiscountModal()">Cancel</button>
+                    <button type="submit" class="btn-action" style="width: auto;">Save Discount</button>
+                </div>
+            </form>
         </div>
     </div>
 
