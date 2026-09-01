@@ -222,6 +222,7 @@ const DiscountLogic = {
             targetType: r.target_type, // 'ALL' | 'CATEGORY' | 'PRODUCT'
             targetCategories: r.target_categories || [],
             targetProductIds: r.target_product_ids || [],
+            minQty: r.min_qty || 1,
             startDate: r.start_date,
             startTime: (r.start_time || '00:00').slice(0, 5),
             endDate: r.end_date,
@@ -252,6 +253,7 @@ const DiscountLogic = {
             target_type: discountData.targetType,
             target_categories: discountData.targetCategories || [],
             target_product_ids: discountData.targetProductIds || [],
+            min_qty: discountData.minQty || 1,
             start_date: discountData.startDate,
             start_time: discountData.startTime,
             end_date: discountData.endDate,
@@ -301,8 +303,10 @@ const DiscountLogic = {
     },
 
     // Given a pre-fetched list of all discounts, find the best (largest peso value) one
-    // that's currently live and applies to this product. Returns a cart-line-shaped object
-    // ({ discountType: 'percent'|'amount', discountValue, discountName }) or null.
+    // that's currently live and applies to this product. Used for browsing-grid badges —
+    // ignores actual cart quantity, since it's just advertising what deals exist.
+    // Returns a cart-line-shaped object ({ discountType, discountValue, discountName, minQty })
+    // or null.
     pickBest(product, allDiscounts) {
         const live = (allDiscounts || []).filter(d => DiscountLogic.isLive(d) && DiscountLogic.doesApply(d, product));
         if (live.length === 0) return null;
@@ -323,8 +327,50 @@ const DiscountLogic = {
         return {
             discountType: best.discountType === 'PERCENT' ? 'percent' : 'amount',
             discountValue: best.discountValue,
-            discountName: best.name
+            discountName: best.name,
+            minQty: best.minQty || 1
         };
+    },
+
+    // Cart-wide evaluation: for bundle discounts (minQty > 1), whether a discount applies
+    // depends on the COMBINED quantity of matching lines across the whole cart, not just
+    // one line in isolation. Returns a map of { [productId]: { discountType, discountValue,
+    // discountName } } for every cart line that currently qualifies for its best discount.
+    computeAutoDiscounts(cart, allDiscounts) {
+        const live = (allDiscounts || []).filter(d => DiscountLogic.isLive(d));
+        const result = {};
+        const bestAmountPerItem = {};
+
+        live.forEach(d => {
+            const matchingLines = cart.filter(item => DiscountLogic.doesApply(d, item));
+            if (matchingLines.length === 0) return;
+
+            const totalQty = matchingLines.reduce((sum, item) => sum + item.qty, 0);
+            if (totalQty < (d.minQty || 1)) return; // bundle threshold not met yet
+
+            matchingLines.forEach(item => {
+                let discountType, discountValue, amount;
+                if (d.discountType === 'PERCENT') {
+                    discountType = 'percent';
+                    discountValue = d.discountValue;
+                    amount = item.price * item.qty * (d.discountValue / 100);
+                } else {
+                    // FIXED campaign discounts are a per-unit rate, so they scale correctly
+                    // with quantity — converted here into the flat "off this line" value the
+                    // cart already understands.
+                    discountType = 'amount';
+                    discountValue = d.discountValue * item.qty;
+                    amount = Math.min(discountValue, item.price * item.qty);
+                }
+
+                if (!(item.id in bestAmountPerItem) || amount > bestAmountPerItem[item.id]) {
+                    bestAmountPerItem[item.id] = amount;
+                    result[item.id] = { discountType, discountValue, discountName: d.name };
+                }
+            });
+        });
+
+        return result;
     }
 };
 
@@ -645,11 +691,16 @@ const POS = {
         let priceLabel = matched ? `₱${matched.price.toFixed(2)}` : '—';
         let saleBadge = '';
         if (matched && autoDiscount) {
-            const discounted = autoDiscount.discountType === 'percent'
-                ? matched.price * (1 - autoDiscount.discountValue / 100)
-                : Math.max(matched.price - autoDiscount.discountValue, 0);
-            priceLabel = `<span class="price-original">₱${matched.price.toFixed(2)}</span> <span class="price-discounted">₱${discounted.toFixed(2)}</span>`;
-            const badgeText = autoDiscount.discountType === 'percent' ? `${autoDiscount.discountValue}% OFF` : `₱${autoDiscount.discountValue} OFF`;
+            const isBundle = autoDiscount.minQty > 1;
+            if (!isBundle) {
+                // Applies immediately — safe to show the already-discounted price.
+                const discounted = autoDiscount.discountType === 'percent'
+                    ? matched.price * (1 - autoDiscount.discountValue / 100)
+                    : Math.max(matched.price - autoDiscount.discountValue, 0);
+                priceLabel = `<span class="price-original">₱${matched.price.toFixed(2)}</span> <span class="price-discounted">₱${discounted.toFixed(2)}</span>`;
+            }
+            const rate = autoDiscount.discountType === 'percent' ? `${autoDiscount.discountValue}% OFF` : `₱${autoDiscount.discountValue} OFF`;
+            const badgeText = isBundle ? `Buy ${autoDiscount.minQty}+: ${rate}` : rate;
             saleBadge = `<span class="sale-badge">${badgeText}</span>`;
         }
 
@@ -718,27 +769,48 @@ const POS = {
         if (cartItem) {
             cartItem.qty += 1;
         } else {
-            let discountType = 'percent';
-            let discountValue = 0;
-            try {
-                const allDiscounts = await DiscountLogic.getAll();
-                const auto = DiscountLogic.pickBest(product, allDiscounts);
-                if (auto) {
-                    discountType = auto.discountType;
-                    discountValue = auto.discountValue;
-                    showToast(`🏷️ ${auto.discountName} applied`);
-                }
-            } catch (err) {
-                console.error(err);
-            }
-            POS.cart.push({ ...product, qty: 1, discountType, discountValue });
+            POS.cart.push({ ...product, qty: 1, discountType: 'percent', discountValue: 0, discountManual: false });
         }
+
+        await POS.reapplyAutoDiscounts();
 
         if (wasEmpty) {
             POS.refreshTxnRefPreview();
         }
 
         POS.renderCart();
+    },
+
+    // Re-evaluates every live discount (including bundle thresholds that depend on the
+    // combined quantity of matching lines) against the current cart, and updates each
+    // line's discount — unless the cashier has manually edited that line's discount,
+    // which this always leaves alone.
+    async reapplyAutoDiscounts() {
+        try {
+            const allDiscounts = await DiscountLogic.getAll();
+            const autoMap = DiscountLogic.computeAutoDiscounts(POS.cart, allDiscounts);
+            const newlyApplied = new Set();
+
+            POS.cart.forEach(item => {
+                if (item.discountManual) return;
+                const auto = autoMap[item.id];
+                const hadDiscount = item.discountValue > 0;
+                if (auto) {
+                    item.discountType = auto.discountType;
+                    item.discountValue = auto.discountValue;
+                    if (!hadDiscount) newlyApplied.add(auto.discountName);
+                } else {
+                    item.discountType = 'percent';
+                    item.discountValue = 0;
+                }
+            });
+
+            if (newlyApplied.size > 0) {
+                showToast(`🏷️ ${Array.from(newlyApplied).join(', ')} applied`);
+            }
+        } catch (err) {
+            console.error(err);
+        }
     },
 
     async updateQty(productId, delta) {
@@ -759,6 +831,7 @@ const POS = {
             cartItem.qty = newQty;
         }
 
+        await POS.reapplyAutoDiscounts();
         POS.renderCart();
     },
 
@@ -846,6 +919,7 @@ const POS = {
         const item = POS.cart.find(i => i.id === productId);
         if (!item) return;
         item.discountType = type;
+        item.discountManual = true;
         POS.refreshItemSubtotal(productId);
         POS.updateCartTotalsDisplay();
     },
@@ -857,6 +931,7 @@ const POS = {
         if (isNaN(val) || val < 0) val = 0;
         if (item.discountType === 'percent' && val > 100) val = 100;
         item.discountValue = val;
+        item.discountManual = true;
         POS.refreshItemSubtotal(productId);
         POS.updateCartTotalsDisplay();
     },
@@ -1653,6 +1728,9 @@ const Admin = {
         document.getElementById('dActive').checked = true;
         document.getElementById('dTargetType').value = 'ALL';
         document.getElementById('dProductSearch').value = '';
+        document.getElementById('dIsBundle').checked = false;
+        document.getElementById('dMinQty').value = '';
+        Admin.onBundleToggleChange();
 
         const today = new Date().toLocaleDateString('en-CA');
         document.getElementById('dStartDate').value = today;
@@ -1682,6 +1760,11 @@ const Admin = {
         document.getElementById('dActive').checked = d.active;
         document.getElementById('dProductSearch').value = '';
 
+        const isBundle = (d.minQty || 1) > 1;
+        document.getElementById('dIsBundle').checked = isBundle;
+        document.getElementById('dMinQty').value = isBundle ? d.minQty : '';
+        Admin.onBundleToggleChange();
+
         await Admin.populateDiscountPickers(d.targetCategories, d.targetProductIds);
         Admin.onDiscountTargetChange();
         document.getElementById('discountModal').classList.add('active');
@@ -1695,6 +1778,14 @@ const Admin = {
         const type = document.getElementById('dTargetType').value;
         document.getElementById('dCategoryPickerWrap').style.display = type === 'CATEGORY' ? 'block' : 'none';
         document.getElementById('dProductPickerWrap').style.display = type === 'PRODUCT' ? 'block' : 'none';
+    },
+
+    onBundleToggleChange() {
+        const isBundle = document.getElementById('dIsBundle').checked;
+        document.getElementById('dBundleQtyWrap').style.display = isBundle ? 'block' : 'none';
+        if (!isBundle) {
+            document.getElementById('dMinQty').value = '';
+        }
     },
 
     async populateDiscountPickers(preselectedCategories = [], preselectedProductIds = []) {
@@ -1750,6 +1841,7 @@ const Admin = {
         const endTime = document.getElementById('dEndTime').value || '23:59';
         const active = document.getElementById('dActive').checked;
         const id = document.getElementById('dId').value || null;
+        const isBundle = document.getElementById('dIsBundle').checked;
 
         if (!name || !discountValue || discountValue <= 0) {
             showToast('Please fill in a name and a valid discount value');
@@ -1771,6 +1863,15 @@ const Admin = {
             return;
         }
 
+        let minQty = 1;
+        if (isBundle) {
+            minQty = parseInt(document.getElementById('dMinQty').value || 0, 10);
+            if (!minQty || minQty < 2) {
+                showToast('Enter a minimum quantity of 2 or more for a bundle discount');
+                return;
+            }
+        }
+
         const targetCategories = targetType === 'CATEGORY'
             ? Array.from(document.querySelectorAll('#dCategoryPicker input:checked')).map(cb => cb.value)
             : [];
@@ -1786,11 +1887,15 @@ const Admin = {
             showToast('Select at least one product');
             return;
         }
+        if (isBundle && targetType === 'PRODUCT' && targetProductIds.length < 2) {
+            showToast('A bundle across specific products needs at least 2 products selected');
+            return;
+        }
 
         try {
             await DiscountLogic.save({
                 id, name, discountType, discountValue, targetType,
-                targetCategories, targetProductIds,
+                targetCategories, targetProductIds, minQty,
                 startDate, startTime, endDate, endTime, active
             });
             Admin.closeDiscountModal();
@@ -1848,7 +1953,9 @@ const Admin = {
 
         tbody.innerHTML = discounts.map(d => {
             const status = DiscountLogic.status(d);
+            const isBundle = (d.minQty || 1) > 1;
             const valueLabel = d.discountType === 'PERCENT' ? `${d.discountValue}% off` : `₱${d.discountValue.toFixed(2)} off`;
+            const fullValueLabel = isBundle ? `${valueLabel} <span class="bundle-tag">Buy ${d.minQty}+</span>` : valueLabel;
 
             let targetLabel = 'All Products';
             if (d.targetType === 'CATEGORY') targetLabel = d.targetCategories.length ? d.targetCategories.join(', ') : '—';
@@ -1859,7 +1966,7 @@ const Admin = {
             return `
                 <tr>
                     <td><strong>${d.name}</strong></td>
-                    <td>${valueLabel}</td>
+                    <td>${fullValueLabel}</td>
                     <td>${targetLabel}</td>
                     <td style="font-size:0.82rem;">${scheduleLabel}</td>
                     <td><span class="badge ${statusBadgeClass[status] || 'badge-muted'}">${status}</span></td>
@@ -1868,6 +1975,7 @@ const Admin = {
                             <button class="btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick="Admin.openEditDiscountModal('${d.id}')">Edit</button>
                             <button class="btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick="Admin.toggleDiscountActive('${d.id}')">${d.active ? 'Disable' : 'Enable'}</button>
                             <button class="btn-danger-outline" style="padding:4px 8px; font-size:0.8rem;" onclick="Admin.deleteDiscount('${d.id}')">Delete</button>
+
                         </div>
                     </td>
                 </tr>
