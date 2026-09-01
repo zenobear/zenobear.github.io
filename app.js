@@ -210,6 +210,125 @@ const StockAdjustmentLogic = {
 };
 
 /* ==========================================================================
+   1c. DISCOUNTS / PROMOTIONS MODULE (schedulable, flexible targeting)
+   ========================================================================== */
+const DiscountLogic = {
+    mapRow(r) {
+        return {
+            id: r.id,
+            name: r.name,
+            discountType: r.discount_type, // 'PERCENT' | 'FIXED'
+            discountValue: Number(r.discount_value),
+            targetType: r.target_type, // 'ALL' | 'CATEGORY' | 'PRODUCT'
+            targetCategories: r.target_categories || [],
+            targetProductIds: r.target_product_ids || [],
+            startDate: r.start_date,
+            startTime: (r.start_time || '00:00').slice(0, 5),
+            endDate: r.end_date,
+            endTime: (r.end_time || '23:59').slice(0, 5),
+            active: r.active
+        };
+    },
+
+    async getAll() {
+        const { data, error } = await db()
+            .from('discounts')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        return (data || []).map(DiscountLogic.mapRow);
+    },
+
+    async getById(id) {
+        const all = await DiscountLogic.getAll();
+        return all.find(d => d.id === id) || null;
+    },
+
+    async save(discountData) {
+        const row = {
+            name: discountData.name,
+            discount_type: discountData.discountType,
+            discount_value: discountData.discountValue,
+            target_type: discountData.targetType,
+            target_categories: discountData.targetCategories || [],
+            target_product_ids: discountData.targetProductIds || [],
+            start_date: discountData.startDate,
+            start_time: discountData.startTime,
+            end_date: discountData.endDate,
+            end_time: discountData.endTime,
+            active: discountData.active !== false
+        };
+
+        if (discountData.id) {
+            const { error } = await db().from('discounts').update(row).eq('id', discountData.id);
+            if (error) throw error;
+        } else {
+            const { error } = await db().from('discounts').insert(row);
+            if (error) throw error;
+        }
+    },
+
+    async delete(id) {
+        const { error } = await db().from('discounts').delete().eq('id', id);
+        if (error) throw error;
+    },
+
+    // Is this discount inside its scheduled window right now, and not manually disabled?
+    isLive(d) {
+        if (!d.active) return false;
+        const now = new Date();
+        const start = new Date(`${d.startDate}T${d.startTime}:00`);
+        const end = new Date(`${d.endDate}T${d.endTime}:00`);
+        return now >= start && now <= end;
+    },
+
+    // Human-readable status for the admin table: Scheduled / Active / Expired / Disabled
+    status(d) {
+        if (!d.active) return 'Disabled';
+        const now = new Date();
+        const start = new Date(`${d.startDate}T${d.startTime}:00`);
+        const end = new Date(`${d.endDate}T${d.endTime}:00`);
+        if (now < start) return 'Scheduled';
+        if (now > end) return 'Expired';
+        return 'Active';
+    },
+
+    doesApply(d, product) {
+        if (d.targetType === 'ALL') return true;
+        if (d.targetType === 'CATEGORY') return d.targetCategories.includes(product.category);
+        if (d.targetType === 'PRODUCT') return d.targetProductIds.includes(product.id);
+        return false;
+    },
+
+    // Given a pre-fetched list of all discounts, find the best (largest peso value) one
+    // that's currently live and applies to this product. Returns a cart-line-shaped object
+    // ({ discountType: 'percent'|'amount', discountValue, discountName }) or null.
+    pickBest(product, allDiscounts) {
+        const live = (allDiscounts || []).filter(d => DiscountLogic.isLive(d) && DiscountLogic.doesApply(d, product));
+        if (live.length === 0) return null;
+
+        let best = null;
+        let bestAmount = -1;
+        live.forEach(d => {
+            const amount = d.discountType === 'PERCENT'
+                ? product.price * (d.discountValue / 100)
+                : d.discountValue;
+            if (amount > bestAmount) {
+                bestAmount = amount;
+                best = d;
+            }
+        });
+
+        if (!best) return null;
+        return {
+            discountType: best.discountType === 'PERCENT' ? 'percent' : 'amount',
+            discountValue: best.discountValue,
+            discountName: best.name
+        };
+    }
+};
+
+/* ==========================================================================
    2. STAFF BUSINESS LOGIC MODULE
    ========================================================================== */
 const StaffLogic = {
@@ -475,7 +594,8 @@ const POS = {
 
     async renderProducts(filter = '') {
         const grid = document.getElementById('posProductGrid');
-        const products = (await ProductLogic.getAll()).filter(p => p.status === 'Active');
+        const [allProducts, allDiscounts] = await Promise.all([ProductLogic.getAll(), DiscountLogic.getAll()]);
+        const products = allProducts.filter(p => p.status === 'Active');
 
         const filtered = products.filter(p =>
             p.name.toLowerCase().includes(filter) ||
@@ -490,10 +610,10 @@ const POS = {
         }
 
         const groups = POS.groupByDesign(filtered);
-        grid.innerHTML = groups.map(group => POS.designCardTemplate(group)).join('');
+        grid.innerHTML = groups.map(group => POS.designCardTemplate(group, allDiscounts)).join('');
     },
 
-    designCardTemplate(group) {
+    designCardTemplate(group, allDiscounts = []) {
         const sizes = [...new Set(group.variants.map(v => v.size).filter(Boolean))];
         const colors = [...new Set(group.variants.map(v => v.color).filter(Boolean))];
 
@@ -519,14 +639,26 @@ const POS = {
         }
 
         const isOut = !matched || matched.stock <= 0;
-        const priceLabel = matched ? `₱${matched.price.toFixed(2)}` : '—';
         const stockLabel = !matched ? 'Not available in this combo' : (isOut ? 'Out of Stock' : `${matched.stock} in stock`);
+
+        const autoDiscount = matched ? DiscountLogic.pickBest(matched, allDiscounts) : null;
+        let priceLabel = matched ? `₱${matched.price.toFixed(2)}` : '—';
+        let saleBadge = '';
+        if (matched && autoDiscount) {
+            const discounted = autoDiscount.discountType === 'percent'
+                ? matched.price * (1 - autoDiscount.discountValue / 100)
+                : Math.max(matched.price - autoDiscount.discountValue, 0);
+            priceLabel = `<span class="price-original">₱${matched.price.toFixed(2)}</span> <span class="price-discounted">₱${discounted.toFixed(2)}</span>`;
+            const badgeText = autoDiscount.discountType === 'percent' ? `${autoDiscount.discountValue}% OFF` : `₱${autoDiscount.discountValue} OFF`;
+            saleBadge = `<span class="sale-badge">${badgeText}</span>`;
+        }
 
         const esc = (s) => String(s).replace(/'/g, "\\'");
 
         return `
             <div class="product-card design-card">
                 <div class="product-image-wrap">
+                    ${saleBadge}
                     ${imageUrl
                         ? `<img src="${imageUrl}" class="product-image" alt="${group.name}">`
                         : `<div class="product-image-placeholder">🐻</div>`}
@@ -586,7 +718,20 @@ const POS = {
         if (cartItem) {
             cartItem.qty += 1;
         } else {
-            POS.cart.push({ ...product, qty: 1, discountType: 'percent', discountValue: 0 });
+            let discountType = 'percent';
+            let discountValue = 0;
+            try {
+                const allDiscounts = await DiscountLogic.getAll();
+                const auto = DiscountLogic.pickBest(product, allDiscounts);
+                if (auto) {
+                    discountType = auto.discountType;
+                    discountValue = auto.discountValue;
+                    showToast(`🏷️ ${auto.discountName} applied`);
+                }
+            } catch (err) {
+                console.error(err);
+            }
+            POS.cart.push({ ...product, qty: 1, discountType, discountValue });
         }
 
         if (wasEmpty) {
@@ -825,12 +970,15 @@ const POS = {
 const Admin = {
     activeStockProductId: null,
     stockModalMode: 'add', // 'add' | 'remove'
+    _discountProductCache: [],
+    _discountSelectedProductIds: new Set(),
 
     async refresh() {
         await Admin.renderDashboard();
         await Admin.renderProducts();
         await Admin.renderInventory();
         await Admin.renderStockHistory();
+        await Admin.renderDiscounts();
         await Admin.renderSales();
         await Admin.renderStaff();
     },
@@ -1494,6 +1642,237 @@ const Admin = {
                 </tr>
             `;
         }).join('');
+    },
+
+    /* ---------------- Discounts / Promotions ---------------- */
+
+    async openAddDiscountModal() {
+        document.getElementById('discountModalTitle').innerText = 'New Discount';
+        document.getElementById('discountForm').reset();
+        document.getElementById('dId').value = '';
+        document.getElementById('dActive').checked = true;
+        document.getElementById('dTargetType').value = 'ALL';
+        document.getElementById('dProductSearch').value = '';
+
+        const today = new Date().toLocaleDateString('en-CA');
+        document.getElementById('dStartDate').value = today;
+        document.getElementById('dStartTime').value = '00:00';
+        document.getElementById('dEndDate').value = today;
+        document.getElementById('dEndTime').value = '23:59';
+
+        await Admin.populateDiscountPickers();
+        Admin.onDiscountTargetChange();
+        document.getElementById('discountModal').classList.add('active');
+    },
+
+    async openEditDiscountModal(id) {
+        const d = await DiscountLogic.getById(id);
+        if (!d) return;
+
+        document.getElementById('discountModalTitle').innerText = 'Edit Discount';
+        document.getElementById('dId').value = d.id;
+        document.getElementById('dName').value = d.name;
+        document.getElementById('dType').value = d.discountType;
+        document.getElementById('dValue').value = d.discountValue;
+        document.getElementById('dTargetType').value = d.targetType;
+        document.getElementById('dStartDate').value = d.startDate;
+        document.getElementById('dStartTime').value = d.startTime;
+        document.getElementById('dEndDate').value = d.endDate;
+        document.getElementById('dEndTime').value = d.endTime;
+        document.getElementById('dActive').checked = d.active;
+        document.getElementById('dProductSearch').value = '';
+
+        await Admin.populateDiscountPickers(d.targetCategories, d.targetProductIds);
+        Admin.onDiscountTargetChange();
+        document.getElementById('discountModal').classList.add('active');
+    },
+
+    closeDiscountModal() {
+        document.getElementById('discountModal').classList.remove('active');
+    },
+
+    onDiscountTargetChange() {
+        const type = document.getElementById('dTargetType').value;
+        document.getElementById('dCategoryPickerWrap').style.display = type === 'CATEGORY' ? 'block' : 'none';
+        document.getElementById('dProductPickerWrap').style.display = type === 'PRODUCT' ? 'block' : 'none';
+    },
+
+    async populateDiscountPickers(preselectedCategories = [], preselectedProductIds = []) {
+        const products = await ProductLogic.getAll();
+        const categories = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
+
+        document.getElementById('dCategoryPicker').innerHTML = categories.length ? categories.map(cat => `
+            <label class="checkbox-item">
+                <input type="checkbox" value="${cat}" ${preselectedCategories.includes(cat) ? 'checked' : ''}>
+                <span>${cat}</span>
+            </label>
+        `).join('') : `<p class="checkbox-empty">No categories yet — add a category to a product first.</p>`;
+
+        Admin._discountProductCache = products;
+        Admin._discountSelectedProductIds = new Set(preselectedProductIds);
+        Admin.renderDiscountProductPicker(products);
+    },
+
+    renderDiscountProductPicker(products) {
+        document.getElementById('dProductPicker').innerHTML = products.length ? products.map(p => `
+            <label class="checkbox-item">
+                <input type="checkbox" value="${p.id}" ${Admin._discountSelectedProductIds.has(p.id) ? 'checked' : ''}
+                    onchange="Admin.toggleDiscountProductSelection('${p.id}', this.checked)">
+                <span>${p.name}${p.barcode ? ' (' + p.barcode + ')' : ''}</span>
+            </label>
+        `).join('') : `<p class="checkbox-empty">No products found.</p>`;
+    },
+
+    toggleDiscountProductSelection(productId, checked) {
+        if (checked) {
+            Admin._discountSelectedProductIds.add(productId);
+        } else {
+            Admin._discountSelectedProductIds.delete(productId);
+        }
+    },
+
+    filterDiscountProductPicker() {
+        const query = document.getElementById('dProductSearch').value.trim().toLowerCase();
+        const filtered = (Admin._discountProductCache || []).filter(p =>
+            p.name.toLowerCase().includes(query) || (p.barcode && p.barcode.toLowerCase().includes(query))
+        );
+        Admin.renderDiscountProductPicker(filtered);
+    },
+
+    async saveDiscount() {
+        const name = document.getElementById('dName').value.trim();
+        const discountType = document.getElementById('dType').value;
+        const discountValue = parseFloat(document.getElementById('dValue').value);
+        const targetType = document.getElementById('dTargetType').value;
+        const startDate = document.getElementById('dStartDate').value;
+        const startTime = document.getElementById('dStartTime').value || '00:00';
+        const endDate = document.getElementById('dEndDate').value;
+        const endTime = document.getElementById('dEndTime').value || '23:59';
+        const active = document.getElementById('dActive').checked;
+        const id = document.getElementById('dId').value || null;
+
+        if (!name || !discountValue || discountValue <= 0) {
+            showToast('Please fill in a name and a valid discount value');
+            return;
+        }
+        if (discountType === 'PERCENT' && discountValue > 100) {
+            showToast('Percentage discount cannot exceed 100%');
+            return;
+        }
+        if (!startDate || !endDate) {
+            showToast('Please set a start and end date');
+            return;
+        }
+
+        const startTs = new Date(`${startDate}T${startTime}:00`);
+        const endTs = new Date(`${endDate}T${endTime}:00`);
+        if (endTs <= startTs) {
+            showToast('End date/time must be after the start date/time');
+            return;
+        }
+
+        const targetCategories = targetType === 'CATEGORY'
+            ? Array.from(document.querySelectorAll('#dCategoryPicker input:checked')).map(cb => cb.value)
+            : [];
+        const targetProductIds = targetType === 'PRODUCT'
+            ? Array.from(Admin._discountSelectedProductIds)
+            : [];
+
+        if (targetType === 'CATEGORY' && targetCategories.length === 0) {
+            showToast('Select at least one category');
+            return;
+        }
+        if (targetType === 'PRODUCT' && targetProductIds.length === 0) {
+            showToast('Select at least one product');
+            return;
+        }
+
+        try {
+            await DiscountLogic.save({
+                id, name, discountType, discountValue, targetType,
+                targetCategories, targetProductIds,
+                startDate, startTime, endDate, endTime, active
+            });
+            Admin.closeDiscountModal();
+            await Admin.renderDiscounts();
+            await POS.renderProducts();
+            showToast(id ? 'Discount updated' : 'Discount created');
+        } catch (err) {
+            console.error(err);
+            showToast('Error saving discount: ' + err.message);
+        }
+    },
+
+    async deleteDiscount(id) {
+        if (!confirm('Delete this discount? This cannot be undone.')) return;
+        try {
+            await DiscountLogic.delete(id);
+            await Admin.renderDiscounts();
+            await POS.renderProducts();
+            showToast('Discount deleted');
+        } catch (err) {
+            showToast('Error deleting discount: ' + err.message);
+        }
+    },
+
+    async toggleDiscountActive(id) {
+        const d = await DiscountLogic.getById(id);
+        if (!d) return;
+        try {
+            await DiscountLogic.save({ ...d, id, active: !d.active });
+            await Admin.renderDiscounts();
+            await POS.renderProducts();
+        } catch (err) {
+            showToast('Error: ' + err.message);
+        }
+    },
+
+    async renderDiscounts() {
+        const discounts = await DiscountLogic.getAll();
+        const tbody = document.getElementById('adminDiscountsTable');
+        if (!tbody) return;
+
+        if (discounts.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No discounts created yet</td></tr>`;
+            return;
+        }
+
+        const statusBadgeClass = {
+            'Active': 'badge-success',
+            'Scheduled': 'badge-warning',
+            'Expired': 'badge-danger',
+            'Disabled': 'badge-muted'
+        };
+
+        const fmtDate = (ds) => new Date(`${ds}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+        tbody.innerHTML = discounts.map(d => {
+            const status = DiscountLogic.status(d);
+            const valueLabel = d.discountType === 'PERCENT' ? `${d.discountValue}% off` : `₱${d.discountValue.toFixed(2)} off`;
+
+            let targetLabel = 'All Products';
+            if (d.targetType === 'CATEGORY') targetLabel = d.targetCategories.length ? d.targetCategories.join(', ') : '—';
+            if (d.targetType === 'PRODUCT') targetLabel = `${d.targetProductIds.length} product(s)`;
+
+            const scheduleLabel = `${fmtDate(d.startDate)} ${d.startTime} → ${fmtDate(d.endDate)} ${d.endTime}`;
+
+            return `
+                <tr>
+                    <td><strong>${d.name}</strong></td>
+                    <td>${valueLabel}</td>
+                    <td>${targetLabel}</td>
+                    <td style="font-size:0.82rem;">${scheduleLabel}</td>
+                    <td><span class="badge ${statusBadgeClass[status] || 'badge-muted'}">${status}</span></td>
+                    <td>
+                        <div class="actions-cell">
+                            <button class="btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick="Admin.openEditDiscountModal('${d.id}')">Edit</button>
+                            <button class="btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick="Admin.toggleDiscountActive('${d.id}')">${d.active ? 'Disable' : 'Enable'}</button>
+                            <button class="btn-danger-outline" style="padding:4px 8px; font-size:0.8rem;" onclick="Admin.deleteDiscount('${d.id}')">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
     }
 };
 
@@ -1535,6 +1914,7 @@ function switchAdminTab(tabName) {
         'products': 'tabProducts',
         'inventory': 'tabInventory',
         'history': 'tabStockHistory',
+        'discounts': 'tabDiscounts',
         'sales': 'tabSales',
         'staff': 'tabStaff'
     };
