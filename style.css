@@ -261,13 +261,17 @@ body {
     position: absolute;
     top: 8px;
     left: 8px;
+    right: 8px;
     background: var(--danger);
     color: white;
-    font-size: 0.68rem;
+    font-size: 0.65rem;
     font-weight: 800;
     padding: 3px 8px;
-    border-radius: 999px;
+    border-radius: 8px;
     z-index: 1;
+    width: fit-content;
+    max-width: calc(100% - 16px);
+    line-height: 1.3;
     letter-spacing: 0.02em;
 }
 
@@ -983,6 +987,17 @@ tr:hover td {
 .badge-danger { background: #fee2e2; color: #b91c1c; }
 .badge-muted { background: #f1f2f4; color: var(--text-muted); }
 
+.bundle-tag {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--accent);
+    background: #ccfbf1;
+    padding: 2px 7px;
+    border-radius: 999px;
+}
+
 .status-toggle {
     border: none;
     padding: 6px 12px;
@@ -1106,6 +1121,13 @@ tr:hover td {
 
 .checkbox-row {
     margin-top: -0.25rem;
+}
+
+.field-hint {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 6px;
+    line-height: 1.4;
 }
 
 .form-group label {
