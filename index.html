@@ -590,6 +590,19 @@
                     <div class="checkbox-list" id="dProductPicker"><!-- products --></div>
                 </div>
 
+                <div class="form-group full">
+                    <label class="checkbox-item" style="padding-left:0;">
+                        <input type="checkbox" id="dIsBundle" onchange="Admin.onBundleToggleChange()">
+                        <span>Make this a bundle discount (requires buying a minimum quantity)</span>
+                    </label>
+                </div>
+
+                <div class="form-group full" id="dBundleQtyWrap" style="display:none;">
+                    <label>Minimum Combined Quantity</label>
+                    <input type="number" id="dMinQty" class="form-control" min="2" step="1" placeholder="e.g. 3">
+                    <p class="field-hint">Discount only applies once the customer has at least this many matching items in the cart (added together across all matching products). e.g. "Buy 3+ shirts, get 20% off each."</p>
+                </div>
+
                 <div class="form-grid">
                     <div class="form-group">
                         <label>Start Date</label>
